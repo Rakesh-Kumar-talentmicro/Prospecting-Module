@@ -8,3 +8,5 @@ export async function createMessageTables() {
   await messageQueue();
   await messageLog();
 }
+
+

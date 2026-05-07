@@ -1,81 +1,94 @@
 import db from '../config/db.js';
 import os from 'os';
-import {sendEmail} from "../utils/sendEmail.js";
-import {sendSMS} from "../utils/sendSMS.js";
-import {sendWhatsapp} from "../utils/sendWhatsapp.js";
+import { sendEmail } from '../utils/sendEmail.js';
+import { sendSMS } from '../utils/sendSMS.js';
+import { sendWhatsapp } from '../utils/sendWhatsapp.js';
+
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
 const MAX_RETRY = 3;
+const BATCH_SIZE = 5000;
 export const resetStuckJobs = async () => {
     try {
-        const [result] = await db.query(`
-         UPDATE td_messages_queue
-         SET
-            status = 'PENDING',
-            locked_by = NULL,
-            locked_at = NULL
-         WHERE status = 'PROCESSING'
-         AND locked_by IS NOT NULL
-         AND locked_at < NOW() - INTERVAL 15 MINUTE
-         
-      `);
-
+        const [result] = await db.query(`           
+            UPDATE td_message_queue
+            SET
+                status = 1,
+                worker_id = NULL,
+                locked_at = NULL
+            WHERE status = 2
+            AND locked_at < NOW() - INTERVAL 15 MINUTE            
+        `);
         if (result.affectedRows > 0) {
             console.log(`Reset ${result.affectedRows} stuck jobs`);
         }
-
     } catch (err) {
-
         console.log('Reset Job Error:', err);
     }
 };
-
 export const processQueue = async () => {
     let connection;
     try {
         connection = await db.getConnection();
-        await connection.beginTransaction();
-        const [messages] = await connection.query(`
-         SELECT *
-         FROM td_messages_queue
-         WHERE status = 'PENDING'
-         AND retry_count < ?
-         ORDER BY created_at ASC
-         LIMIT 50
-         FOR UPDATE SKIP LOCKED`, [MAX_RETRY]);
-
-        if (messages.length === 0) {
-            await connection.commit();
+        const [claimResult] = await connection.query(`
+            UPDATE td_message_queue
+            SET
+                status = 2,
+                worker_id = ?,
+                locked_at = NOW()
+            WHERE id IN (
+                SELECT id
+                FROM (
+                    SELECT id
+                    FROM td_message_queue
+                    WHERE status = 1
+                    AND retry_count < ?
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                ) x
+            )
+        `, [WORKER_ID, MAX_RETRY, BATCH_SIZE]);
+        if (claimResult.affectedRows === 0) {
             console.log('No pending messages');
             return;
         }
-        const ids = messages.map(msg => msg.id);
-        await connection.query(`
-            UPDATE td_messages_queue
-            SET
-                status = 'PROCESSING',
-                locked_by = ?,
-                locked_at = NOW()
-            WHERE id IN (?) `, [WORKER_ID, ids]);
-        await connection.commit();
-        console.log(`Locked ${ids.length} messages`);
+        console.log(`Claimed ${claimResult.affectedRows} messages`);
+        const [messages] = await connection.query(`
+            SELECT *
+            FROM td_message_queue
+            WHERE worker_id = ?
+            AND status = 2            
+        `, [WORKER_ID]);
+
         const successIds = [];
         const failedIds = [];
         const logs = [];
         for (const msg of messages) {
             try {
                 let response = null;
-                if (msg.channel === 'EMAIL') {
-                    response = await sendEmail({to:msg.to_address ,subject:msg.subject,body:msg.body});
-                } else if (msg.channel === 'SMS') {
-                    response = await sendSMS({body:msg.body,to_address:msg.to_address});
-                } else {
-                    response = await sendWhatsapp({body:msg.body,to_address:msg.to_address});
+                if (msg.channel === 1) {
+                    response = await sendEmail({
+                        to: msg.to_address,
+                        subject: msg.subject,
+                        body: msg.body
+                    });
+                } else if (msg.channel === 2) {
+
+                    response = await sendSMS({
+                        to_address: msg.to_address,
+                        body: msg.body
+                    });
+                } else if (msg.channel === 3) {
+
+                    response = await sendWhatsapp({
+                        to_address: msg.to_address,
+                        body: msg.body
+                    });
                 }
                 successIds.push(msg.id);
                 logs.push([
                     msg.id,
                     msg.channel,
-                    'SUCCESS',
+                    3,
                     response?.provider || null,
                     response?.messageId || null,
                     null,
@@ -87,7 +100,7 @@ export const processQueue = async () => {
                 logs.push([
                     msg.id,
                     msg.channel,
-                    'FAILED',
+                    4,
                     null,
                     null,
                     err.message,
@@ -95,54 +108,51 @@ export const processQueue = async () => {
                 ]);
             }
         }
-
         if (successIds.length > 0) {
-            await connection.query(`
-        UPDATE td_messages_queue
-        SET
-            status = 'SENT',
-            processed_at = NOW(),
-            locked_by = NULL,
-            locked_at = NULL
-        WHERE id IN (?)`, [successIds]);
+            await connection.query(`                
+                UPDATE td_message_queue
+                SET
+                    status = 3,
+                    processed_at = NOW(),
+                    worker_id = NULL,
+                    locked_at = NULL
+                WHERE id IN (?)                
+            `, [successIds]);
         }
         if (failedIds.length > 0) {
-            await connection.query(`
-            UPDATE td_messages_queue
-            SET
-                retry_count = retry_count + 1,
-                status = CASE
-                    WHEN retry_count + 1 >= ?
-                    THEN 'FAILED'
-                    ELSE 'PENDING'
-                END,
-                locked_by = NULL,
-                locked_at = NULL,
-                error_message = 'Message sending failed'
-            WHERE id IN (?)
-            
-         `, [MAX_RETRY, failedIds]);
+            await connection.query(`                
+                UPDATE td_message_queue
+                SET
+                    retry_count = retry_count + 1,
+                    status = CASE
+                        WHEN retry_count + 1 >= ?
+                        THEN 4
+                        ELSE 1
+                    END,
+                    worker_id = NULL,
+                    locked_at = NULL,
+                    error_message = 'Message sending failed'
+                WHERE id IN (?)
+            `, [MAX_RETRY, failedIds]);
         }
         if (logs.length > 0) {
-            await connection.query(`
-            INSERT INTO td_message_logs (
-               queue_id,
-               channel,
-               status,
-               provider,
-               provider_message_id,
-               error_message,
-               response_body
-            )
-            VALUES ?
-         `, [logs]);
+            await connection.query(`               
+                INSERT INTO td_message_logs (
+                    queue_id,
+                    channel,
+                    status,
+                    provider,
+                    provider_message_id,
+                    error_message,
+                    response_body
+                )
+                VALUES ?
+            `, [logs]);
         }
+
         console.log('Queue processing completed');
     } catch (err) {
         console.log('Worker Error:', err);
-        if (connection) {
-            await connection.rollback();
-        }
     } finally {
         if (connection) {
             connection.release();

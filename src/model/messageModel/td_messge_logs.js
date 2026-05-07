@@ -4,13 +4,18 @@ const createTableQuery = `
 CREATE TABLE IF NOT EXISTS td_message_logs (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   queue_id BIGINT NOT NULL,
-  channel ENUM('EMAIL','SMS','WHATSAPP') NOT NULL,
-  status ENUM('SUCCESS','FAILED') NOT NULL,
+  channel SMALLINT,
+  status SMALLINT,
   provider VARCHAR(100),
-  provider_message_id VARCHAR(255),
+  provider_messageid VARCHAR(255),
   error_message TEXT,
   response_body TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (queue_id) REFERENCES td_message_queue(id),
+  FOREIGN KEY (status) REFERENCES md_message_status_enum(id),
+  FOREIGN KEY (channel) REFERENCES md_message_channel_enum(id),
+
   INDEX idx_queue_id (queue_id),
   INDEX idx_status (status)
 );
