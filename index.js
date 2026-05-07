@@ -11,6 +11,19 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+app.use((req, res, next) => {
+
+    res.on("finish", () => {
+
+        console.log(
+            `${req.method} ${req.originalUrl} ${res.statusCode}`
+        );
+
+    });
+
+    next();
+});
+
 // createAllTable();               //  ----> This function will create all tables from models directly into each system 
 app.use('/messages', messagesRoutes);
 app.use('/prospects', prospectRoutes);
