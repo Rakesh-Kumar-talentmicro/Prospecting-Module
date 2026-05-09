@@ -4,9 +4,7 @@ const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_sources (
   source_id INT NOT NULL AUTO_INCREMENT,
   source_key VARCHAR(50) NOT NULL,
-  icon VARCHAR(100) DEFAULT NULL,
-  sort_order INT DEFAULT 0,
-  is_active TINYINT(1) DEFAULT 1,
+  lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   PRIMARY KEY (source_id),
   UNIQUE KEY source_key (source_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -162,7 +162,7 @@ export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, u
     const [rows] = await connection.query(
       `SELECT
       t.id AS template_id,
-      c.channel_name,
+      t.channel AS channel_name,
       t.channel,
       t.subject,
       t.body,
@@ -173,7 +173,6 @@ export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, u
       p.email,
       p.phone
       FROM md_message_templates t
-      INNER JOIN md_message_channel_enum c ON t.channel = c.id
       INNER JOIN md_prospects p ON p.id = ?
       WHERE t.id = ? `, [prospect_id, template_id]);
 
@@ -313,9 +312,6 @@ export const queue = async ({ channel, prospect_id, limit, offset }) => {
 
 export const postTemplates = async ({ templateCode, channel, language_id, subject, body }) => {
   try {
-    const [[channelRow]] = await db.query(`SELECT id from md_message_channel_enum WHERE channel_name = ?`,[channel]);
-    const channel_id = channelRow.id;
-    // Extract variables from body ({{variable}})
     const matches = body.match(/{{(.*?)}}/g) || [];
 
     // Clean and deduplicate
@@ -332,7 +328,7 @@ export const postTemplates = async ({ templateCode, channel, language_id, subjec
     const values = [
       templateCode,
       language_id,
-      channel_id,
+      channel,
       subject,
       body,
       JSON.stringify(variables)
@@ -384,11 +380,10 @@ export const updateTemplates = async ({ id, data }) => {
   }
 }
 
-export const getTemplates = async ({ templateCode, channelNames, language_id, limit, offset }) => {
+export const getTemplates = async ({ templateCode, channel, language_id, limit, offset }) => {
   try {
     let baseQuery = `
       FROM md_message_templates t
-      JOIN md_message_channel_enum c ON t.channel = c.id
       WHERE 1=1
     `;
     let values = [];
@@ -398,9 +393,9 @@ export const getTemplates = async ({ templateCode, channelNames, language_id, li
       values.push(templateCode);
     }
 
-    if (channelNames && channelNames.length > 0) {
-      baseQuery += ` AND c.channel_name IN (${channelNames.map(() => '?').join(',')})`;
-      values.push(...channelNames);
+    if (channel && channel.length > 0) {
+      baseQuery += ` AND t.channel IN (${channel.map(() => '?').join(',')})`;
+      values.push(...channel);
     }
 
     if (language_id) {
@@ -413,7 +408,7 @@ export const getTemplates = async ({ templateCode, channelNames, language_id, li
     const [[countResult]] = await db.query(countQuery, values);
 
     // Data query with pagination
-    const dataQuery = `SELECT t.*, c.channel_name ${baseQuery} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
+    const dataQuery = `SELECT t.*, t.channel AS channel_name ${baseQuery} ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
     const [rows] = await db.query(dataQuery, [...values, limit, offset]);
 
     return {
