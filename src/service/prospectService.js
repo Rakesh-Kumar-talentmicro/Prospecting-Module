@@ -1,12 +1,13 @@
 export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db) => {
   const [firstStageRows] = await db.query(
-    'SELECT stage_code FROM md_stages WHERE sort_order = 1 AND is_active = 1 LIMIT 1'
+    'SELECT stage_code FROM md_stages WHERE stage_key = ? LIMIT 1',
+    ['PENDING']
   );
   let stageCode = 1;
   if (firstStageRows.length > 0) {
     stageCode = firstStageRows[0].stage_code;
   } else {
-    const [anyFirst] = await db.query('SELECT stage_code FROM md_stages WHERE is_active = 1 ORDER BY sort_order ASC LIMIT 1');
+    const [anyFirst] = await db.query('SELECT stage_code FROM md_stages ORDER BY stage_code ASC LIMIT 1');
     if (anyFirst.length > 0) stageCode = anyFirst[0].stage_code;
   }
 
@@ -58,7 +59,7 @@ export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) 
     const currentStage = rows[0].stage_code;
 
     const [stageMeta] = await connection.query(
-      'SELECT stage_code FROM md_stages WHERE stage_code=? AND is_active = 1 LIMIT 1',
+      'SELECT stage_code FROM md_stages WHERE stage_code=? LIMIT 1',
       [newStage]
     );
     if (stageMeta.length === 0) throw new Error('STAGE_NOT_FOUND');
