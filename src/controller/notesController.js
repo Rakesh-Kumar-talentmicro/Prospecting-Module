@@ -4,49 +4,43 @@ import { CreateError } from "../middleware/createError.js";
 // Create a new note
 export const createNote = async (req, res, next) => {
     try {
-        const { note_text, created_by } = req.body;
+
+        const { prospect_id, note_text, created_by, attachment_paths } = req.body;
+
         if (!note_text) {
             return next(CreateError(400, "note text required"));
         }
+
         const result = await notesService.addNote(
-            req.params.id,
+            prospect_id,
             note_text,
-            created_by
+            created_by,
+            attachment_paths
         );
 
         res.status(201).json({
             success: true,
             data: result,
         });
+
     } catch (err) {
         next(err);
     }
 };
 
-// List all notes
+// List notes based on prospectId
 export const listNotes = async (req, res, next) => {
     try {
-        const notes = await notesService.getNotes(req.params.id);
-        res.json({
+
+        const { prospectId } = req.params;
+
+        const notes = await notesService.getNotes(prospectId);
+
+        res.status(200).json({
             success: true,
             data: notes,
         });
-    } catch (err) {
-        next(err);
-    }
-};
 
-// Update a note
-export const updateNote = async (req, res, next) => {
-    try {
-        const result = await notesService.updateNote(
-            req.params.noteId,
-            req.body.note_text
-        );
-        res.json({
-            success: true,
-            data: result,
-        });
     } catch (err) {
         next(err);
     }

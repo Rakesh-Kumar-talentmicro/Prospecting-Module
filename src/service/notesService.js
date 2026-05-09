@@ -1,30 +1,45 @@
-import db from "../config/db.js"
+import * as notesModel from "../model/notesModel/index.js";
 
-export const addNote = async (prospectId, noteText, createdBy) => {
+export const addNote = async (
+    prospectId,
+    noteText,
+    createdBy,
+    attachment_paths
+) => {
+
     try {
-        const values = [prospectId, noteText, JSON.stringify([]), createdBy];
-        const query = `INSERT INTO notes(prospect_id,note_text,attachment_paths,created_by)VALUES(?,?,?,?)`;
-        const [result] = await db.execute(query, values);
-        return { id: result.insertId };
-    } catch(err){
-        throw err;
-    }
-}
 
-export const getNotes = async (prospectId) => {
-    try{
-        const [rows] = await notesModel.fetchNotes(prospectId);
-        return rows;
-    }catch(err){
+        const result = await notesModel.addNote(
+            prospectId,
+            noteText,
+            createdBy,
+            attachment_paths
+        );
+
+        return {
+            id: result.insertId
+        };
+
+    } catch (err) {
+
         throw err;
+
     }
 };
 
-export const updateNote = async (noteId, noteText) => {
-    try{
-        await notesModel.updateNoteModel(noteId, noteText);
-        return { message: "Updated successfully" };
-    }catch(err){
+export const getNotes = async (prospectId) => {
+
+    try {
+
+        const rows = await notesModel.getNotesByProspectId(
+            prospectId
+        );
+
+        return rows;
+
+    } catch (err) {
+
         throw err;
+
     }
 };
