@@ -1,121 +1,6 @@
 import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 
-// export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
-//   let connection;
-//   try {
-//     connection = await db.getConnection();
-//     await connection.beginTransaction();
-//     const [templates] = await connection.query(`SELECT * FROM md_message_templates WHERE id = ?`, [template_id]);
-//     if (templates.length === 0) {
-//       throw CreateError(404, 'Template not found');
-//     }
-
-//     const template = templates[0];
-
-//     let requiredVariables  = [];
-//     if (Array.isArray(template.variables)) {
-//       requiredVariables  = template.variables;
-//     } else {
-//       requiredVariables  = JSON.parse(template.variables || '[]');
-//     }
-
-//     const insertedQueueIds = [];
-//     // Process each message
-//     for (const item of messages) {
-//       const [prospects] = await connection.query(`
-//         SELECT
-//           id,
-//           contact_name,
-//           company_name,
-//           email,
-//           phone
-//         FROM md_prospects
-//         WHERE id = ?
-//       `, [item.prospect_id]);
-
-//       if (prospects.length === 0) {
-//         throw CreateError(404, `Prospect not found: ${item.prospect_id}`);
-//       }
-
-//       const prospect = prospects[0];
-
-//       // Prospect data
-//       const prospectData = {
-//         company_name: prospect.company_name,
-//         contact_name: prospect.contact_name,
-//         email: prospect.email,
-//         phone: prospect.phone
-//       };
-
-//       const customVariables = requiredVars.filter(
-//         variable => !(variable in prospectData)
-//       );
-
-//       for (const variable of customVariables) {
-//         if (
-//           item.payload?.[variable] === undefined ||
-//           item.payload?.[variable] === null ||
-//           item.payload?.[variable] === ''
-//         ) {
-//           throw CreateError(400, `Missing payload variable: ${variable} for prospect ${item.prospect_id}`);
-//         }
-//       }
-//       // Merge payload
-//       const finalPayload = { ...prospectData, ...(item.payload || {}) };
-//       let finalSubject = template.subject;
-//       let finalBody = template.body;
-//       for (const variable of requiredVariables) {
-//         const regex = new RegExp(`{{${variable}}}`,'g');
-//         finalSubject = finalSubject.replace(regex,finalPayload[variable]);
-//         finalBody = finalBody.replace(regex,finalPayload[variable]);
-//       }
-//       // Determine recipient
-//       let toAddress = data.channel === 'EMAIL' ? data.email : data.phone;
-
-//       if (!toAddress) {
-//         throw CreateError(400, `Recipient not found for prospect ${item.prospect_id}`);
-//       }
-
-//       // Insert queue record
-//       const [result] = await connection.query(`
-//         INSERT INTO td_messages_queue (
-//           channel,
-//           to_address,
-//           subject,
-//           body,
-//           status
-//         )
-//         VALUES (?, ?, ?, ?, 1)
-//       `, [
-//         template.channel,
-//         toAddress,
-//         finalSubject,
-//         finalBody
-//       ]);
-//       insertedQueueIds.push(result.insertId);
-//     }
-//     await connection.commit();
-
-//     return {
-//       total_messages: insertedQueueIds.length,
-//       queue_ids: insertedQueueIds,
-//       status: 'PENDING',
-//       message: 'Bulk messages queued successfully'
-//     };
-
-//   } catch (err) {
-//     if (connection) {
-//       await connection.rollback();
-//     }
-//     throw err;
-//   } finally {
-//     if (connection) {
-//       connection.release();
-//     }
-//   }
-// };
-
 export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
   let connection;
   try {
@@ -230,17 +115,9 @@ export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, u
     }
 
     // Insert message into queue
-    const [result] = await connection.query(`
-      INSERT INTO td_message_queue (
-        channel,
-        prospect_id,
-        to_address,
-        subject,
-        body,
-        status
-      )
-      VALUES (?, ?, ?, ?, 1)
-    `, [
+    const [result] = await connection.query(
+      `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
+      [
       data.channel,
       data.prospect_id,
       toAddress,
@@ -249,7 +126,7 @@ export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, u
     ]);
 
     return {
-      queue_id: result.insertId,
+      queue_id: result[0][0].queue_id,
       message: 'Message queued successfully'
     };
 
