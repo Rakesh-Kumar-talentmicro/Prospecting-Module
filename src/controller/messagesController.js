@@ -1,41 +1,23 @@
 import * as messageService from '../service/messagesService.js';
-import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 
 export const sendBulk = async (req, res, next) => {
   try {
     const {template_id,messages} = req.body;
-    //const userId = req.authentication['userid'];
     const userId = 105; 
     if (!template_id || !userId) {
       return next(CreateError(400, 'Missing required fields'));
     }
 
-    // Messages validation
     if (!Array.isArray(messages) || messages.length === 0) {
       return next(CreateError(400, 'Messages must be a non-empty array'));
     }
-
-    // Validate each message item
-    for (const item of messages) {
-      if (!item.prospect_id) {
-        return next(CreateError(400, 'prospect_id is required for each message'));
-      }
-
-      if (item.payload !== undefined && (
-          typeof item.payload !== 'object' ||
-          Array.isArray(item.payload))) {
-        return next(CreateError(400, 'payload must be JSON object'));
-      }
-    }
-
     const result = await messageService.enqueueBulkMessages({ template_id, userId, messages });
     return res.status(201).json({
       success: true,
-      message: 'Bulk messages queued successfully',
-      data: result
+      message: result.message,
+      total_id_inserted: result.queue_ids
     });
-
   } catch (err) {
     next(err);
   }
@@ -44,19 +26,18 @@ export const sendBulk = async (req, res, next) => {
 export const sendSingle = async (req, res, next) => {
   try {
     const { template_id, prospect_id, payload={} } = req.body;
-    const userId = req.authentication['userid'] || Number(105);  // ----> Authentication part
+    //const userId = req.authentication['userid'] || Number(105);  // ----> Authentication part
+    const userId = 105;
     if (!template_id || !prospect_id || !userId) {
       return next(CreateError(400, 'Missing required fields'))
     }
 
-    // Payload Optional validation
     if (typeof payload !== "object" || Array.isArray(payload)) {
       return next(CreateError(400, 'Payload must be a valid JSON object'));
     }
 
-    // Call service
     const result = await messageService.enqueueMessage({ template_id, prospect_id, payload, userId });
-    return res.status(201).json({ success: true, message: "Message queued successfully", data: result });
+    return res.status(201).json({ success: true, message: result.message, queue_id: result.queue_id});
 
   } catch (err) {
     next(err);

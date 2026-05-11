@@ -1,22 +1,32 @@
 import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 
-export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
+export const enqueueBulkMessages = async ({template_id,userId,messages}) => {
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
     const insertedQueueIds = [];
-    // Process each message
-
-    for(const item of messages){
-      const result = enqueueMessage({template_id, prospect_id:item.prospect_id, payload:item, userId});
-      if(result){
-        insertedQueueIds.push(result.queue_id);
-      }else{
-        await connection.rollback();
+    for (const item of messages) {
+      if (!item.prospect_id) {
+        throw CreateError(400,'prospect_id is required for each message');
       }
+
+      if (item.payload !== undefined && (typeof item.payload !== 'object' || Array.isArray(item.payload))) {
+        throw CreateError(400,'payload must be JSON object');
+      }
+
+      const result = await enqueueMessage({
+        template_id,
+        prospect_id: item.prospect_id,
+        payload: item.payload || {},
+        userId,
+        connection
+      });
+
+      insertedQueueIds.push(result.queue_id);
     }
+
     await connection.commit();
 
     return {
@@ -36,109 +46,88 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
     }
   }
 };
-
-export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, userId }) => {
-  console.log(template_id, prospect_id, payload, userId);
-  let connection;
+export const enqueueMessage = async ({template_id,prospect_id,payload = {},userId,connection = null}) => {
   try {
-    connection = await db.getConnection();
-
-    // Fetch template + prospect + channel using JOIN
-    const [rows] = await connection.query(
+    const executor = connection || db;
+    const [rows] = await executor.query(
       `SELECT
-      t.id AS template_id,
-      c.channel_name,
-      t.channel,
-      t.subject,
-      t.body,
-      t.variables,
-      p.id AS prospect_id,
-      p.contact_name,
-      p.company_name,
-      p.email,
-      p.phone
+        t.id AS template_id,
+        c.channel_name,
+        t.channel,
+        t.subject,
+        t.body,
+        t.variables,
+        p.id AS prospect_id,
+        p.contact_name,
+        p.company_name,
+        p.email,
+        p.phone
       FROM md_message_templates t
-      INNER JOIN md_message_channel_enum c ON t.channel = c.id
-      INNER JOIN md_prospects p ON p.id = ?
-      WHERE t.id = ? `, [prospect_id, template_id]);
+      INNER JOIN md_message_channel_enum c
+        ON t.channel = c.id
+      INNER JOIN md_prospects p
+        ON p.id = ?
+      WHERE t.id = ?`,
+      [prospect_id, template_id]
+    );
 
     if (rows.length === 0) {
       throw CreateError(404, 'Template or Prospect not found');
     }
 
     const data = rows[0];
-
-    let requiredVariables  = [];
+    let requiredVariables = [];
 
     if (Array.isArray(data.variables)) {
-      requiredVariables  = data.variables;
+      requiredVariables = data.variables;
     } else {
-      requiredVariables  = JSON.parse(data.variables || '[]');
+      requiredVariables = JSON.parse(data.variables || '[]');
     }
 
-    // Prospect based variables
-    const prospectData = {
-      contact_name: data.contact_name,
-      company_name: data.company_name,
-      email: data.email,
-      phone: data.phone
-    };
-    const customVariables  = requiredVariables.filter(
-      variable => !(variable in prospectData)
-    );
-
-    for (const variable of customVariables) {
+    const allField = {...data,...payload};
+    for (const variable of requiredVariables) {
       if (
-        payload[variable] === undefined ||
-        payload[variable] === null ||
-        payload[variable] === ''
+        allField[variable] === undefined ||
+        allField[variable] === null ||
+        allField[variable] === ''
       ) {
-        throw CreateError(400, `Missing payload variable: ${variable}`);
+        throw CreateError(400,`Missing payload variable: ${variable}`);
       }
     }
-    // Merge prospect data + dynamic payload
-    const finalPayload = { ...prospectData, ...payload };
+
     let finalSubject = data.subject;
     let finalBody = data.body;
+
     for (const variable of requiredVariables) {
-      const regex = new RegExp(
-        `{{${variable}}}`,
-        'g'
-      );
-      finalSubject = finalSubject.replace(regex,finalPayload[variable]);
-      finalBody = finalBody.replace(regex,finalPayload[variable]);
-    }
-    // Determine recipient automatically
-    let toAddress = data.channel_name === 'EMAIL' ? data.email : data.phone;
-    if (!toAddress) {
-      throw CreateError(400, 'Recipient address not found');
+      const regex = new RegExp(`{{${variable}}}`, 'g');
+      finalSubject = finalSubject.replace(regex,allField[variable]);
+      finalBody = finalBody.replace(regex,allField[variable]);
     }
 
-    // Insert message into queue
-    const [result] = await connection.query(
+    const toAddress = data.channel_name === 'EMAIL' ? data.email : data.phone;
+    if (!toAddress) {
+      throw CreateError(400,'Recipient address not found');
+    }
+
+    const [[callRows]] = await executor.query(
       `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
       [
-      data.channel,
-      data.prospect_id,
-      toAddress,
-      finalSubject,
-      finalBody
-    ]);
-
+        data.channel,
+        data.prospect_id,
+        toAddress,
+        finalSubject,
+        finalBody
+      ]
+    );
     return {
-      queue_id: result[0][0].queue_id,
+      queue_id: callRows[0].queue_id,
       message: 'Message queued successfully'
     };
 
   } catch (err) {
     throw err;
-  } finally {
-    if (connection) {
-      connection.release();
-    }
   }
 };
-
 export const queue = async ({ channel, prospect_id, limit, offset }) => {
   try{
     let baseQuery = `FROM td_message_queue q
@@ -187,7 +176,6 @@ export const queue = async ({ channel, prospect_id, limit, offset }) => {
     throw err;
   }
 };
-
 export const postTemplates = async ({ templateCode, channel, language_id, subject, body }) => {
   try {
     const [[channelRow]] = await db.query(`SELECT id from md_message_channel_enum WHERE channel_name = ?`,[channel]);
@@ -220,7 +208,6 @@ export const postTemplates = async ({ templateCode, channel, language_id, subjec
     throw err;
   }
 };
-
 export const updateTemplates = async ({ id, data }) => {
   try {
     const { subject, body } = data;
@@ -260,7 +247,6 @@ export const updateTemplates = async ({ id, data }) => {
     throw err;
   }
 }
-
 export const getTemplates = async ({ templateCode, channelNames, language_id, limit, offset }) => {
   try {
     let baseQuery = `

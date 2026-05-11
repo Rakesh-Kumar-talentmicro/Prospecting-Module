@@ -7,22 +7,21 @@ CREATE PROCEDURE sp_claim_queue_messages(
 )
 BEGIN
 
-    UPDATE td_message_queue
-    SET
-        status = 2,
-        worker_id = p_worker_id,
-        locked_at = NOW()
-    WHERE id IN (
+    UPDATE td_message_queue mq
+    JOIN (
         SELECT id
-        FROM (
-            SELECT id
-            FROM td_message_queue
-            WHERE status = 1
-            AND retry_count < p_max_retry
-            ORDER BY created_at ASC
-            LIMIT p_batch_size
-        ) x
-    );
+        FROM td_message_queue
+        WHERE status = 1
+          AND retry_count < p_max_retry
+        ORDER BY created_at ASC
+        LIMIT p_batch_size
+    ) AS q
+    ON mq.id = q.id
+
+    SET
+        mq.status = 2,
+        mq.worker_id = p_worker_id,
+        mq.locked_at = NOW();
 
 END //
 
@@ -50,22 +49,14 @@ CREATE PROCEDURE sp_mark_success_messages(
     IN p_ids TEXT
 )
 BEGIN
-
-    SET @query = CONCAT(
-        'UPDATE td_message_queue
-         SET
-            status = 3,
-            processed_at = NOW(),
-            worker_id = NULL,
-            locked_at = NULL
-         WHERE id IN (', p_ids, ')'
-    );
-
-    PREPARE stmt FROM @query;
-    EXECUTE stmt;
-    DEALLOCATE PREPARE stmt;
-
-END //
+    UPDATE td_message_queue
+    SET
+        status = 3,
+        processed_at = NOW(),
+        worker_id = NULL,
+        locked_at = NULL
+    WHERE FIND_IN_SET(id, p_ids);
+END;
 
 DELIMITER ;
 
@@ -76,25 +67,17 @@ CREATE PROCEDURE sp_mark_failed_messages(
     IN p_max_retry INT
 )
 BEGIN
-
-    SET @query = CONCAT(
-        'UPDATE td_message_queue
-         SET
-            retry_count = retry_count + 1,
-            status = CASE
-                WHEN retry_count + 1 >= ', p_max_retry, '
-                THEN 4
-                ELSE 1
-            END,
-            worker_id = NULL,
-            locked_at = NULL,
-            error_message = "Message sending failed"
-         WHERE id IN (', p_ids, ')'
-    );
-
-    PREPARE stmt FROM @query;
-    EXECUTE stmt;
-    DEALLOCATE PREPARE stmt;
+    UPDATE td_message_queue
+        SET
+        retry_count = retry_count + 1,
+        status = CASE
+            WHEN retry_count + 1 >= p_max_retry THEN 4
+            ELSE 1
+        END,
+        worker_id = NULL,
+        locked_at = NULL,
+        error_message = "Message sending failed"
+        WHERE FIND_IN_SET(id, p_ids);
 
 END //
 
@@ -109,45 +92,9 @@ BEGIN
     SET
         status = 1,
         worker_id = NULL,
-        locked_at = NULL
+        locked_at = NULL 
     WHERE status = 2
-    AND locked_at < NOW();
-
-END //
-
-DELIMITER ;
-
-DELIMITER //
-
-CREATE PROCEDURE sp_insert_message_log(
-    IN p_queue_id BIGINT,
-    IN p_channel SMALLINT,
-    IN p_status SMALLINT,
-    IN p_provider VARCHAR(100),
-    IN p_provider_message_id VARCHAR(255),
-    IN p_error_message TEXT,
-    IN p_response_body TEXT
-)
-BEGIN
-
-    INSERT INTO td_message_logs (
-        queue_id,
-        channel,
-        status,
-        provider,
-        provider_message_id,
-        error_message,
-        response_body
-    )
-    VALUES (
-        p_queue_id,
-        p_channel,
-        p_status,
-        p_provider,
-        p_provider_message_id,
-        p_error_message,
-        p_response_body
-    );
+    AND locked_at < NOW() - INTERVAL 15 MINUTE;
 
 END //
 

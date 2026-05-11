@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import * as engineService from "../service/engineService.js";
 
-cron.schedule('*/5 * * * * *', async () => {
+cron.schedule('*/10 * * * * *', async () => {
     console.log('Queue Cron Triggered');
     await engineService.processQueue();
 });

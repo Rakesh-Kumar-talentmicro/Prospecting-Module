@@ -6,7 +6,7 @@ import { sendWhatsapp } from '../utils/sendWhatsapp.js';
 
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
 const MAX_RETRY = 3;
-const BATCH_SIZE = 5000;
+const BATCH_SIZE = 1000;
 export const resetStuckJobs = async () => {
     try {
         const [result] = await db.query(`CALL sp_reset_stuck_jobs()`);
@@ -27,7 +27,7 @@ export const processQueue = async () => {
             return;
         }
         console.log(`Claimed ${claimResult.affectedRows} messages`);
-        const [messages] = await connection.query(`sp_get_worker_messages(?)`, [WORKER_ID]);
+        const [[messages]] = await connection.query(`CALL sp_get_worker_messages(?)`, [WORKER_ID]);
         const successIds = [];
         const failedIds = [];
         const logs = [];
@@ -84,7 +84,19 @@ export const processQueue = async () => {
             await connection.query(`CALL sp_mark_failed_messages(?, ?)`, [failedIds.join(','),MAX_RETRY]);
         }
         if (logs.length > 0) {
-            await connection.query(`CALL sp_insert_message_log(?, ?, ?, ?, ?, ?, ?)`,[logs]);
+           await connection.query(`
+            INSERT INTO td_message_logs (
+            queue_id,
+            channel,
+            status,
+            provider,
+            provider_message_id,
+            error_message,
+            response_body
+            )
+            VALUES ?
+            `,
+            [logs]);
         }
 
         console.log('Queue processing completed');

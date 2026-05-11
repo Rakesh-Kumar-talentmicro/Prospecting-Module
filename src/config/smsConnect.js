@@ -4,7 +4,7 @@ dotenv.config();
 
 const accountSid = process.env.ACCOUNT_SID;
 const authToken = process.env.AUTH_TOKEN;
-const phoneNumber = proccess.env.PHONE;
+const phoneNumber = process.env.PHONE;
 const client = twilio(accountSid, authToken);
 
 export async function sms({ body, to_address }) {
