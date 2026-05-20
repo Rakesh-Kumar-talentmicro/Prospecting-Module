@@ -1,7 +1,7 @@
-import { createTable as createLanguagesTable } from "./mt_languages.js";
-import { createTable as createSourcesTable } from "./mt_sources.js";
-import { createTable as createStagesTable } from "./mt_stages.js";
-import { createTable as createStageTranslationsTable } from "./mt_stages_translation.js";
+import { createTable as createLanguagesTable } from "./md_languages.js";
+import { createTable as createSourcesTable } from "./md_sources.js";
+import { createTable as createStagesTable } from "./md_stages.js";
+import { createTable as createStageTranslationsTable } from "./md_stages_translation.js";
 
 export async function createMasterTables() {
   await createLanguagesTable();

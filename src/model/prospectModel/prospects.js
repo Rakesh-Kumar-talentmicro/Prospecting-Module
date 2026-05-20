@@ -1,7 +1,11 @@
 import db from "../../config/db.js";
 
 const createTableQuery = `
+ HEAD
 CREATE TABLE IF NOT EXISTS mt_prospects (  
+
+CREATE TABLE IF NOT EXISTS md_prospects (  
+ 868b2e10247b9bc968d731667cb9f81afcb56e84
     id                BIGINT PRIMARY KEY AUTO_INCREMENT,  
     company_name      VARCHAR(255),  
     contact_name      VARCHAR(255),  
@@ -34,8 +38,14 @@ CREATE TABLE IF NOT EXISTS mt_prospects (
 export async function createTable() {
     try {
         await db.execute(createTableQuery);
+ HEAD
         console.log("prospects table created successfully");
     } catch (err) {
         console.error("Error creating prospects table", err);
+
+        console.log("md_prospects table created successfully");
+    } catch (err) {
+        console.error("Error creating md_prospects table", err);
+ 868b2e10247b9bc968d731667cb9f81afcb56e84
     }
 }

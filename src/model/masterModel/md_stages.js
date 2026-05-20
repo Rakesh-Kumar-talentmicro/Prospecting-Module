@@ -1,7 +1,7 @@
 import db from "../../config/db.js";
 
 const createTableQuery = `
-CREATE TABLE IF NOT EXISTS mt_stages (
+CREATE TABLE IF NOT EXISTS md_stages (
   stage_code INT NOT NULL,
   stage_key VARCHAR(50) NOT NULL,
   sort_order INT DEFAULT 0,
@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS mt_stages (
 export async function createTable() {
   try {
     await db.execute(createTableQuery);
-    console.log("mt_stages table created successfully");
+    console.log("md_stages table created successfully");
   } catch (err) {
-    console.error("Error creating mt_stages table", err);
+    console.error("Error creating md_stages table", err);
   }
 }

@@ -21,7 +21,7 @@ export const uploadProspects = async (req, res) => {
 export const listProspects = async (req, res) => {
     try {
         const { assigned_user_id, stage_code, last_id = 0, limit = 50 } = req.query;
-        let query = 'SELECT * FROM prospects WHERE 1=1';
+        let query = 'SELECT * FROM md_prospects WHERE 1=1';
         const params = [];
 
         if (assigned_user_id) {
@@ -46,7 +46,7 @@ export const listProspects = async (req, res) => {
 export const getProspect = async (req, res) => {
     try {
         const { id } = req.params;
-        const [rows] = await db.query('SELECT * FROM prospects WHERE id = ?', [id]);
+        const [rows] = await db.query('SELECT * FROM md_prospects WHERE id = ?', [id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         res.json(normalizeOutputData(rows, prospectMapping)[0]);
     } catch (err) {
@@ -62,7 +62,7 @@ export const updateProspect = async (req, res) => {
 
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
 
-        let query = 'UPDATE prospects SET ';
+        let query = 'UPDATE md_prospects SET ';
         const params = [];
         for (const [key, value] of Object.entries(updates)) {
             query += `${key} = ?, `;
@@ -105,11 +105,10 @@ export const transferProspects = async (req, res) => {
 export const getProspectHistory = async (req, res) => {
     try {
         const { id } = req.params;
-        const [stageLogs] = await db.query('SELECT * FROM stage_logs WHERE prospect_id = ? ORDER BY moved_at DESC', [id]);
-        const [transferLogs] = await db.query('SELECT * FROM transfer_logs WHERE prospect_id = ? ORDER BY transferred_at DESC', [id]);
+        const [stageLogs] = await db.query('SELECT * FROM td_stage_logs WHERE prospect_id = ? ORDER BY moved_at DESC', [id]);
+        const [transferLogs] = await db.query('SELECT * FROM td_transfer_logs WHERE prospect_id = ? ORDER BY transferred_at DESC', [id]);
         res.json({ stageLogs, transferLogs });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 };
-

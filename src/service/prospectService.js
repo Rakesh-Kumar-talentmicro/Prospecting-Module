@@ -21,11 +21,11 @@ export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db) 
   let existingPhones = new Set();
 
   if (emails.length > 0) {
-    const [existingEmailRows] = await db.query('SELECT email FROM prospects WHERE email IN (?)', [emails]);
+    const [existingEmailRows] = await db.query('SELECT email FROM md_prospects WHERE email IN (?)', [emails]);
     existingEmailRows.forEach(r => existingEmails.add(r.email));
   }
   if (phones.length > 0) {
-    const [existingPhoneRows] = await db.query('SELECT phone FROM prospects WHERE phone IN (?)', [phones]);
+    const [existingPhoneRows] = await db.query('SELECT phone FROM md_prospects WHERE phone IN (?)', [phones]);
     existingPhoneRows.forEach(r => existingPhones.add(r.phone));
   }
 
@@ -40,7 +40,7 @@ export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db) 
   ]);
 
   const [result] = await db.query(
-    'INSERT INTO prospects (company_name, contact_name, job_title, email, phone, linkedin_url, twitter_url, facebook_url, instagram_url, stage_code, created_by, source_id) VALUES ?',
+    'INSERT INTO md_prospects (company_name, contact_name, job_title, email, phone, linkedin_url, twitter_url, facebook_url, instagram_url, stage_code, created_by, source_id) VALUES ?',
     [validValues]
   );
 
@@ -52,7 +52,7 @@ export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) 
   await connection.beginTransaction();
   try {
     const [rows] = await connection.query(
-      'SELECT stage_code FROM prospects WHERE id = ? FOR UPDATE',
+      'SELECT stage_code FROM md_prospects WHERE id = ? FOR UPDATE',
       [prospectId]
     );
     if (rows.length === 0) throw new Error('PROSPECT_NOT_FOUND');
@@ -67,11 +67,15 @@ export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) 
     }
 
     await connection.query(
-      'UPDATE prospects SET stage_code=?, reason_id=?, updated_at=NOW(), updated_by=? WHERE id=?',
+      'UPDATE md_prospects SET stage_code=?, reason_id=?, updated_at=NOW(), updated_by=? WHERE id=?',
       [newStage, reasonId || null, userId, prospectId]
     );
     await connection.query(
       'INSERT INTO stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
+      [prospectId, currentStage, newStage, userId, reasonId || null]
+    );
+    await connection.query(
+      'INSERT INTO td_stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
       [prospectId, currentStage, newStage, userId, reasonId || null]
     );
     await connection.commit();
@@ -89,12 +93,16 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
   await connection.beginTransaction();
   try {
     await connection.query(
-      'UPDATE prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
+      'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
       [toUserId, prospectIds]
     );
     const logRows = prospectIds.map(id => [id, fromUserId, toUserId, adminId]);
     await connection.query(
       'INSERT INTO transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
+      [logRows]
+    );
+    await connection.query(
+      'INSERT INTO td_transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
       [logRows]
     );
     await connection.commit();

@@ -1,7 +1,7 @@
 import db from "../../config/db.js";
 
 const createTableQuery = `
-CREATE TABLE IF NOT EXISTS mt_sources (
+CREATE TABLE IF NOT EXISTS md_sources (
   source_id INT NOT NULL AUTO_INCREMENT,
   source_key VARCHAR(50) NOT NULL,
   icon VARCHAR(100) DEFAULT NULL,
@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS mt_sources (
 export async function createTable() {
   try {
     await db.execute(createTableQuery);
-    console.log("mt_sources table created successfully");
+    console.log("md_sources table created successfully");
   } catch (err) {
-    console.error("Error creating mt_sources table", err);
+    console.error("Error creating md_sources table", err);
   }
 }
