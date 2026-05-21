@@ -24,6 +24,6 @@ export const parseExcelMiddleware = async (req, res, next) => {
         next();
     } catch (err) {
         console.error("Excel parse error:", err);
-        res.status(500).json({ error: 'Failed to parse excel file' });
+        return res.status(500).json({ error: 'Failed to parse excel file' });
     }
 };
