@@ -50,6 +50,16 @@ const toNullablePositiveInteger = (value, fieldName) => {
   return normalized;
 };
 
+const toRequiredPositiveInteger = (value, fieldName) => {
+  const normalized = toNullablePositiveInteger(value, fieldName);
+
+  if (normalized === null) {
+    throw CreateError(400, `${fieldName} is required`);
+  }
+
+  return normalized;
+};
+
 const getSourceKey = async (sourceId, dbOrConnection) => {
   if (!sourceId) {
     return null;
@@ -117,6 +127,44 @@ const getStageMeta = async (stageCode, dbOrConnection) => {
     stage_code: rows[0].stage_code,
     stage_key: String(rows[0].stage_key || '').trim().toUpperCase()
   };
+};
+
+const getStageCodeByLabel = async (stageLabel, dbOrConnection) => {
+  const normalizedLabel = toNullableString(stageLabel);
+
+  if (!normalizedLabel) {
+    return null;
+  }
+
+  const [rows] = await dbOrConnection.query(
+    `SELECT sm.stage_code
+     FROM md_stages sm
+     INNER JOIN md_stages_translation st
+       ON st.stage_code = sm.stage_code
+     WHERE UPPER(st.stage_in_lang) = ?
+     ORDER BY COALESCE(sm.seq, sm.stage_code), sm.stage_code
+     LIMIT 1`,
+    [normalizedLabel.toUpperCase()]
+  );
+
+  if (rows.length === 0) {
+    throw CreateError(400, 'Invalid stage label');
+  }
+
+  return rows[0].stage_code;
+};
+
+const resolveStageCode = async ({ stageCode, stageLabel }, dbOrConnection) => {
+  if (stageCode !== undefined && stageCode !== null && stageCode !== '') {
+    return stageCode;
+  }
+
+  const stageCodeFromLabel = await getStageCodeByLabel(stageLabel, dbOrConnection);
+  if (stageCodeFromLabel !== null) {
+    return stageCodeFromLabel;
+  }
+
+  throw CreateError(400, 'stage_code or stage label is required');
 };
 
 const assertReasonExists = async (reasonId, dbOrConnection) => {
@@ -455,29 +503,34 @@ export const updateProspect = async ({ id, updates, userId }, db) => {
   }
 };
 
-export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) => {
+export const moveStage = async ({ prospectId, newStage, newStageLg, reasonId, userId }, db) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
+    const parsedProspectId = toRequiredPositiveInteger(prospectId, 'prospectId');
     const [rows] = await connection.query(
       'SELECT stage_code FROM md_prospects WHERE id = ? FOR UPDATE',
-      [prospectId]
+      [parsedProspectId]
     );
     if (rows.length === 0) throw CreateError(404, 'Prospect not found');
     const currentStage = rows[0].stage_code;
+    const resolvedStageCode = await resolveStageCode({
+      stageCode: newStage,
+      stageLabel: newStageLg
+    }, connection);
 
     const stageReason = await validateStageReason({
-      stageCode: newStage,
+      stageCode: resolvedStageCode,
       reasonId
     }, connection);
 
     await connection.query(
       'UPDATE md_prospects SET stage_code=?, reason_id=?, updated_at=NOW(), updated_by=? WHERE id=?',
-      [stageReason.stageCode, stageReason.reasonId, userId, prospectId]
+      [stageReason.stageCode, stageReason.reasonId, userId, parsedProspectId]
     );
     await connection.query(
       'INSERT INTO td_stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
-      [prospectId, currentStage, stageReason.stageCode, userId, stageReason.reasonId]
+      [parsedProspectId, currentStage, stageReason.stageCode, userId, stageReason.reasonId]
     );
     await connection.commit();
     return {
@@ -495,20 +548,28 @@ export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) 
 };
 
 export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adminId }, db) => {
+  const ids = (Array.isArray(prospectIds) ? prospectIds : [prospectIds])
+    .map((id) => toNullablePositiveInteger(id, 'prospectId'))
+    .filter((id) => id !== null);
+
+  if (ids.length === 0) {
+    throw CreateError(400, 'prospectIds is required');
+  }
+
   const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
     await connection.query(
       'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
-      [toUserId, prospectIds]
+      [toUserId, ids]
     );
-    const logRows = prospectIds.map(id => [id, fromUserId, toUserId, adminId]);
+    const logRows = ids.map(id => [id, fromUserId, toUserId, adminId]);
     await connection.query(
       'INSERT INTO td_transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
       [logRows]
     );
     await connection.commit();
-    return { transferred: prospectIds.length };
+    return { transferred: ids.length };
   } catch (err) {
     await connection.rollback();
     throw err;

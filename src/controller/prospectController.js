@@ -1,7 +1,6 @@
 import * as prospectService from '../service/prospectService.js';
 import * as activityService from '../service/activityService.js';
 import db from '../config/db.js';
-import { CreateError } from '../middleware/createError.js';
 import { normalizeInputData, normalizeOutputData } from '../utils/normalizeUtils.js';
 import { prospectMapping } from '../model/prospectModel/prospectMapping.js';
 
@@ -38,7 +37,16 @@ export const createProspect = async (req, res, next) => {
 
 export const listProspects = async (req, res, next) => {
     try {
-        const { assigned_user_id, stage_code, source_id, industry_id, industry_size_id, last_id = 0, limit = 50 } = req.query;
+        const {
+            assigned_user_id,
+            stage_code,
+            source_id,
+            industry_id,
+            industry_size_id,
+            page,
+            last_id = 0,
+            limit = 50
+        } = req.query;
         let query = 'SELECT * FROM md_prospects WHERE 1=1';
         const params = [];
 
@@ -63,8 +71,15 @@ export const listProspects = async (req, res, next) => {
             params.push(industry_size_id);
         }
 
-        query += ' AND id > ? ORDER BY id ASC LIMIT ?';
-        params.push(parseInt(last_id), parseInt(limit));
+        const parsedLimit = parseInt(limit, 10) || 50;
+        if (page) {
+            const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+            query += ' ORDER BY id ASC LIMIT ? OFFSET ?';
+            params.push(parsedLimit, (parsedPage - 1) * parsedLimit);
+        } else {
+            query += ' AND id > ? ORDER BY id ASC LIMIT ?';
+            params.push(parseInt(last_id, 10) || 0, parsedLimit);
+        }
 
         const [rows] = await db.query(query, params);
         res.json({ prospects: normalizeOutputData(rows, prospectMapping) });
@@ -103,9 +118,10 @@ export const moveStage = async (req, res, next) => {
     try {
         const { id: prospectId } = req.params;
         const newStage = req.body.newStage ?? req.body.stageCode ?? req.body.stage_code;
+        const newStageLg = req.body.newStageLg ?? req.body.stageLabel ?? req.body.stage_in_lang;
         const reasonId = req.body.reasonId ?? req.body.reason_id;
         const userId = req.headers['user-id'] || 1;
-        const result = await prospectService.moveStage({ prospectId, newStage, reasonId, userId }, db);
+        const result = await prospectService.moveStage({ prospectId, newStage, newStageLg, reasonId, userId }, db);
         res.json(result);
     } catch (err) {
         next(err);
@@ -201,4 +217,3 @@ export const cancelActivity = async (req, res, next) => {
         next(err);
     }
 };
-

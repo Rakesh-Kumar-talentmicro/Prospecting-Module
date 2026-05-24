@@ -3,15 +3,13 @@ import * as controller from '../controller/messagesController.js';
 
 const router = express.Router();
 
-router.post('/sendBulk', controller.sendBulk);  // for Bulk send route
-router.post('/sendSingle', controller.sendSingle);  // Single send route
-router.post('/sendCustom', controller.sendCustom);  // Compose without saved template
-router.get('/queue', controller.queue);  // Queue status route or status of prospects
+router.post('/sendBulk', controller.sendBulk);
+router.post('/sendSingle', controller.sendSingle);
+router.post('/sendCustom', controller.sendCustom);
+router.get('/queue', controller.queue);
 
-router.post('/templates', controller.postTemplates); // Create template
-router.put('/templates/:id', controller.updateTemplates); // Update template
-router.get('/templates', controller.getTemplates); // List templates
-// router.get('/health', controller.healthCheck);
+router.post('/templates', controller.postTemplates);
+router.put('/templates/:id', controller.updateTemplates);
+router.get('/templates', controller.getTemplates);
+
 export default router;
-
-

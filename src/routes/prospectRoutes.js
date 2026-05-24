@@ -4,7 +4,8 @@ import { upload, parseExcelMiddleware } from '../middleware/excelParser.js';
 
 const router = express.Router();
 
-router.post('/upload', upload.array('file'), parseExcelMiddleware, prospectController.uploadProspects);
+router.post('/uploadfile', upload.array('file'), parseExcelMiddleware, prospectController.uploadProspects);
+router.post('/upload', prospectController.uploadProspects);
 router.patch('/transfer', prospectController.transferProspects);
 router.get('/', prospectController.listProspects);
 router.post('/', prospectController.createProspect);
