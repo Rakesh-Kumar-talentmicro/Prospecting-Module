@@ -663,6 +663,35 @@ const main = async () => {
       expect(data.updateLogs.length >= 1, 'Expected at least one update log');
     });
 
+    await record('GET BD activity report aggregates activities and attempted prospects', async () => {
+      const { data } = await request('GET', `/reports/bd-activity?period=month&fromDate=1970-01-01&toDate=2099-12-31&bdName=${encodeURIComponent(`Codex BD ${runId}`)}`, { expectedStatus: 200 });
+      expect(data.success === true, 'BD activity report did not return success');
+      expect(data.data.report === 'bd-activity', 'Unexpected BD activity report name');
+      expect(data.data.period === 'month', 'Unexpected BD activity period');
+      expect(Array.isArray(data.data.rows), 'BD activity rows should be an array');
+      expect(data.data.rows.length >= 1, 'BD activity report should include the test BD');
+      expect(data.data.totals.activityCount >= 2, 'BD activity report should count created activities');
+      expect(data.data.totals.activeProspects >= 1, 'BD activity report should count active prospects');
+      expect(data.data.totals.attemptedProspects >= 1, 'BD activity report should count attempted prospects');
+      expect(data.data.rows.every((row) => row.previousYear), 'BD activity rows should include previous year data');
+    });
+
+    await record('GET prospect sourcing report groups sourced prospects by BD', async () => {
+      const { data } = await request('GET', `/reports/prospect-sourcing?period=year&fromDate=1970-01-01&toDate=2099-12-31&bdName=${encodeURIComponent(`Codex BD ${runId}`)}`, { expectedStatus: 200 });
+      expect(data.success === true, 'Prospect sourcing report did not return success');
+      expect(data.data.report === 'prospect-sourcing', 'Unexpected prospect sourcing report name');
+      expect(data.data.period === 'year', 'Unexpected prospect sourcing period');
+      expect(Array.isArray(data.data.rows), 'Prospect sourcing rows should be an array');
+      expect(data.data.rows.length >= 1, 'Prospect sourcing report should include the test BD');
+      expect(data.data.totals.sourcedProspects >= 2, 'Prospect sourcing report should count test prospects');
+      expect(data.data.rows.every((row) => row.previousYear), 'Prospect sourcing rows should include previous year data');
+    });
+
+    await record('GET reports reject invalid period', async () => {
+      const { status } = await request('GET', '/reports/bd-activity?period=decade');
+      expectStatusIn(status, [400], 'Invalid report period');
+    });
+
     await record('POST notes rejects empty and accepts long note with attachment', async () => {
       expect(primaryProspectId, 'Primary prospect was not created');
       const empty = await request('POST', '/notes', {
