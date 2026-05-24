@@ -5,6 +5,7 @@ const router = express.Router();
 
 router.post('/sendBulk', controller.sendBulk);  // for Bulk send route
 router.post('/sendSingle', controller.sendSingle);  // Single send route
+router.post('/sendCustom', controller.sendCustom);  // Compose without saved template
 router.get('/queue', controller.queue);  // Queue status route or status of prospects
 
 router.post('/templates', controller.postTemplates); // Create template

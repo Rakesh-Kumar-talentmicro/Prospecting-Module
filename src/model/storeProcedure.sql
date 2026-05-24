@@ -56,7 +56,7 @@ BEGIN
         worker_id = NULL,
         locked_at = NULL
     WHERE FIND_IN_SET(id, p_ids);
-END;
+END //
 
 DELIMITER ;
 
