@@ -6,6 +6,7 @@
   "scripts": {
     "start": "nodemon index.js",
     "worker": "nodemon src/worker/worker.js",
+    "worker2": "nodemon src/worker/workerProspects.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -13,6 +14,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@elastic/elasticsearch": "^9.4.1",
     "cron": "^4.4.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

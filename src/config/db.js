@@ -9,7 +9,7 @@ const db = mysql.createPool({
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'root',
   //database: process.env.DB_NAME || 'prospects_module',
-   database: 'prospects_module',
+   database: 'testing_module',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0

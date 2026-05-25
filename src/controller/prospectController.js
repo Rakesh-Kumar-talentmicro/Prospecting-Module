@@ -1,16 +1,14 @@
 import * as prospectService from '../service/prospectService.js';
-import db from '../config/db.js';
-import { CreateError } from '../middleware/createError.js';
 import { normalizeInputData, normalizeOutputData } from '../utils/normalizeUtils.js';
 import { prospectMapping } from '../model/prospectModel/prospectMapping.js';
+import db from '../config/db.js';
 
-export const uploadProspects = async (req, res,next) => {
+export const uploadProspects = async (req, res, next) => {
     try {
         const { prospects } = req.body;
         const normalizedProspects = normalizeInputData(prospects, prospectMapping);
-
         const userId = req.headers['user-id'] || 1;
-        const result = await prospectService.bulkInsertProspects(normalizedProspects, userId, 'EN', db);
+        const result = await prospectService.bulkInsertProspects(normalizedProspects, userId);
         return res.json(result);
     } catch (err) {
         console.error("Upload error:", err);
@@ -18,48 +16,81 @@ export const uploadProspects = async (req, res,next) => {
     }
 };
 
-export const listProspects = async (req, res,next) => {
+export const listProspects = async (req, res, next) => {
     try {
-        const { assigned_user_id, stage_code, page, limit} = req.query;
-        let limits = parseInt(limit) || 50;
-        let offset = parseInt((page-1)*limits);
+        const { assigned_to, stage_code, page = 1, limit = 50 } = req.query;
+        const limits = parseInt(limit) || 50;
+        const offset = (parseInt(page) - 1) * limits;
+        let query = `
+            SELECT *
+            FROM md_prospects p
+            LEFT JOIN ( SELECT prospect_id, stage_code FROM (
+                SELECT
+                    prospect_id,
+                    stage_code,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY prospect_id
+                        ORDER BY created_at DESC
+                    ) AS rn
+                FROM td_prospect_stage_history
+            ) s
+            WHERE rn = 1) s ON s.prospect_id = p.id
+            LEFT JOIN (
+                SELECT prospect_id, assigned_to, assigned_by, source_by
+                FROM (
+                    SELECT
+                        prospect_id,
+                        assigned_to,
+                        assigned_by,
+                        source_by,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY prospect_id
+                            ORDER BY created_at DESC
+                        ) AS rn
+                    FROM td_prospect_assignment
+                ) a WHERE rn = 1
+            ) a ON a.prospect_id = p.id
+            WHERE 1=1
+        `;
 
-        let query = 'SELECT * FROM md_prospects WHERE 1=1';
-        const value = [];
+        const values = [];
 
-        if (assigned_user_id) {
-            query += ' AND assigned_user_id = ?';
-            value.push(assigned_user_id);
+        if (assigned_to) {
+            query += ` AND a.assigned_to = ?`;
+            values.push(assigned_to);
         }
+
         if (stage_code) {
-            query += ' AND stage_code = ?';
-            value.push(stage_code);
+            query += ` AND s.stage_code = ?`;
+            values.push(stage_code);
         }
 
-        // query += ' AND id > ? ORDER BY id ASC LIMIT ?';
-        query += ' LIMIT ? OFFSET ?'
-        value.push(limits,offset);
+        query += ` ORDER BY p.id DESC LIMIT ? OFFSET ?`;
+        values.push(limits, offset);
 
-        const [rows] = await db.query(query, value);
+        const [rows] = await db.query(query, values);
+
         let prospects = normalizeOutputData(rows, prospectMapping);
+
         return res.status(200).json(prospects);
     } catch (err) {
         next(err);
     }
-};
-export const getProspect = async (req, res,next) => {
+}; //Done
+
+export const getProspect = async (req, res, next) => {
     try {
         const { id } = req.params;
         const [rows] = await db.query('SELECT * FROM md_prospects WHERE id = ?', [id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
         let prospect = normalizeOutputData(rows, prospectMapping);
-        return res.status(200).json(...prospect);
+        return res.status(200).json(prospect[0]);
     } catch (err) {
         next(err);
     }
-};
+}; //Done
 
-export const updateProspect = async (req, res,next) => {
+export const updateProspect = async (req, res, next) => {
     try {
         const { id } = req.params;
         const updates = req.body;
@@ -83,38 +114,41 @@ export const updateProspect = async (req, res,next) => {
     }
 };
 
-export const moveStage = async (req, res,next) => {
+export const moveStage = async (req, res, next) => {
     try {
         const prospectId = req.params.id;
-        const { newStageLg, reasonId } = req.body;
+        const { newStage, reasonId } = req.body;
+        let reason = reasonId ? parseInt(reasonId) : null;
         const userId = req.headers['user-id'] || 1;
-        const result = await prospectService.moveStage({ prospectId: parseInt(prospectId), newStageLg, reasonId, userId }, db);
+        const result = await prospectService.moveStage({
+            prospectId: parseInt(prospectId),
+            newStage: parseInt(newStage), reason, userId
+        }, db);
         return res.json(result);
     } catch (err) {
         next(err);
     }
-};
+}; //Done
 
-export const transferProspects = async (req, res,next) => {
-    try {
-        const { prospectIds, toUserId } = req.body;
-        const fromUserId = req.headers['user-id'] || 1;
-        const adminId = req.headers['admin-id'] || 1;
-        const result = await prospectService.transferProspects({ prospectIds, toUserId:parseInt(toUserId), fromUserId, adminId }, db);
-        return res.json(result);
-    } catch (err) {
-        next(err);
-    }
-};
-
-export const getProspectHistory = async (req, res,next) => {
+export const getProspectHistory = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const [stageLogs] = await db.query('SELECT * FROM td_stage_logs WHERE prospect_id = ? ORDER BY moved_at DESC', [id]);
-        const [transferLogs] = await db.query('SELECT * FROM td_transfer_logs WHERE prospect_id = ? ORDER BY transferred_at DESC', [id]);
-        res.json({ stageLogs: stageLogs[0], transferLogs: transferLogs[0] });
+        let p_id = parseInt(id);
+        const [stageLogs] = await db.query('SELECT * FROM td_prospect_stage_history WHERE prospect_id = ? ORDER BY created_at DESC', [p_id]);
+        const [transferLogs] = await db.query('SELECT * FROM td_prospect_assignment WHERE prospect_id = ? ORDER BY created_at DESC', [p_id]);
+        return res.json({ stageLogs: stageLogs, transferLogs: transferLogs });
     } catch (err) {
         next(err);
     }
-};
+}; //Done
 
+export const transferProspects = async (req, res, next) => {
+    try {
+        const { prospectIds, assigned_to } = req.body;
+        const assigned_by = req.headers['user-id'] || 1;
+        const result = await prospectService.transferProspects({ prospectIds, assigned_to: parseInt(assigned_to), assigned_by }, db);
+        return res.json(result);
+    } catch (err) {
+        next(err);
+    }
+}; // Done
