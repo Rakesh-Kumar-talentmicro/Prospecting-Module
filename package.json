@@ -6,6 +6,7 @@
   "scripts": {
     "start": "nodemon index.js",
     "worker": "nodemon src/worker/worker.js",
+    "worker2": "nodemon src/worker/workerProspects.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -22,6 +23,7 @@
     "nodemailer": "^8.0.7",
     "nodemon": "^3.1.14",
     "pq": "^0.0.3",
+    "redis": "^5.12.1",
     "twilio": "^6.0.0",
     "xlsx": "^0.18.5"
   }

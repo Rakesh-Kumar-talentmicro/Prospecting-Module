@@ -529,8 +529,10 @@ export const moveStage = async ({ prospectId, newStage, newStageLg, reasonId, us
       [stageReason.stageCode, stageReason.reasonId, userId, parsedProspectId]
     );
     await connection.query(
-      'INSERT INTO td_stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
-      [parsedProspectId, currentStage, stageReason.stageCode, userId, stageReason.reasonId]
+      `INSERT INTO td_prospect_stage_history
+         (prospect_id, stage_code, reason_id, updated_by)
+       VALUES (?, ?, ?, ?)`,
+      [parsedProspectId, stageReason.stageCode, stageReason.reasonId, userId]
     );
     await connection.commit();
     return {
@@ -559,14 +561,22 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
   const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
+    const assignee = toRequiredPositiveInteger(toUserId, 'toUserId');
+    const assignRows = ids.map((id) => [id, assignee, fromUserId || null, fromUserId || null]);
+
+    await connection.query(
+      `INSERT INTO td_prospect_assignment (prospect_id, assigned_to, assigned_by, source_by)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         assigned_to = VALUES(assigned_to),
+         assigned_by = VALUES(assigned_by),
+         source_by = VALUES(source_by)`,
+      [assignRows]
+    );
+
     await connection.query(
       'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
-      [toUserId, ids]
-    );
-    const logRows = ids.map(id => [id, fromUserId, toUserId, adminId]);
-    await connection.query(
-      'INSERT INTO td_transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
-      [logRows]
+      [assignee, ids]
     );
     await connection.commit();
     return { transferred: ids.length };
