@@ -1,7 +1,6 @@
 import express from 'express';
 import * as prospectController from '../controller/prospectController.js';
 import { upload, parseExcelMiddleware } from '../middleware/excelParser.js';
-import db from '../config/db.js';
 
 const router = express.Router();
 
