@@ -16,7 +16,8 @@ export const sendBulk = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       message: result.message,
-      total_id_inserted: result.queue_ids
+      total_id_inserted: result.queue_ids,
+      activity_ids: result.activity_ids
     });
   } catch (err) {
     next(err);
@@ -37,8 +38,37 @@ export const sendSingle = async (req, res, next) => {
     }
 
     const result = await messageService.enqueueMessage({ template_id, prospect_id, payload, userId });
-    return res.status(201).json({ success: true, message: result.message, queue_id: result.queue_id});
+    return res.status(201).json({
+      success: true,
+      message: result.message,
+      queue_id: result.queue_id,
+      activity_id: result.activity_id
+    });
 
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const sendCustom = async (req, res, next) => {
+  try {
+    const { channel, prospect_id, subject = null, body } = req.body;
+    const userId = 105;
+
+    const result = await messageService.enqueueCustomMessage({
+      channel,
+      prospect_id,
+      subject,
+      body,
+      userId
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: result.message,
+      queue_id: result.queue_id,
+      activity_id: result.activity_id
+    });
   } catch (err) {
     next(err);
   }
