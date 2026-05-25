@@ -13,4 +13,4 @@ node_modules
 ~$prospects_bulk_import_template.xlsx
 prospects_bulk_import_template.xlsx
 docs
-scripts
+scripts/full-api-smoke-test.js
