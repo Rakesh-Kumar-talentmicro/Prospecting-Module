@@ -3,6 +3,7 @@ import os from 'os';
 import { sendEmail } from '../utils/sendEmail.js';
 import { sendSMS } from '../utils/sendSMS.js';
 import { sendWhatsapp } from '../utils/sendWhatsapp.js';
+import { closeActivitiesByQueueIds } from './activityService.js';
 
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
 const MAX_RETRY = 3;
@@ -79,6 +80,7 @@ export const processQueue = async () => {
         }
         if (successIds.length > 0) {
             await connection.query(`CALL sp_mark_success_messages(?)`, [successIds.join(',')]);
+            await closeActivitiesByQueueIds(successIds, connection);
         }
         if (failedIds.length > 0) {
             await connection.query(`CALL sp_mark_failed_messages(?, ?)`, [failedIds.join(','),MAX_RETRY]);

@@ -4,6 +4,7 @@ const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_stages (
   stage_code INT NOT NULL,
   stage_key VARCHAR(50) NOT NULL,
+  seq INT,
   progress INT NOT NULL,
   PRIMARY KEY (stage_code),
   UNIQUE KEY stage_key (stage_key)

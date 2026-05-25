@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
+import { REASON_REQUIRED_STAGE_KEYS, TERMINAL_STAGE_KEYS } from '../constants/stages.js';
 
 const DEFAULT_LANGUAGE_ID = 'EN';
 const MASTER_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -11,9 +12,9 @@ const masterTables = {
     table: 'md_activity_status',
     primaryKeys: ['activity_id'],
     autoIncrementKeys: ['activity_id'],
-    insertColumns: ['activity_id', 'activity_title', 'lang_id'],
-    selectColumns: ['activity_id', 'activity_title', 'lang_id'],
-    orderBy: 'activity_id'
+    insertColumns: ['activity_id', 'activity_title', 'seq', 'lang_id'],
+    selectColumns: ['activity_id', 'activity_title', 'seq', 'lang_id'],
+    orderBy: 'COALESCE(seq, activity_id), activity_id'
   },
   'activity-status-translated': {
     table: 'md_activity_status_translated',
@@ -107,9 +108,9 @@ const masterTables = {
     table: 'md_stages',
     primaryKeys: ['stage_code'],
     autoIncrementKeys: [],
-    insertColumns: ['stage_code', 'stage_key', 'progress'],
-    selectColumns: ['stage_code', 'stage_key', 'progress'],
-    orderBy: 'stage_code'
+    insertColumns: ['stage_code', 'stage_key', 'seq', 'progress'],
+    selectColumns: ['stage_code', 'stage_key', 'seq', 'progress'],
+    orderBy: 'COALESCE(seq, stage_code), stage_code'
   },
   'stages-translation': {
     table: 'md_stages_translation',
@@ -249,13 +250,14 @@ export const upsertMasterData = async (masterName, payload) => {
   const placeholders = rows.map(() => `(${columns.map(() => '?').join(', ')})`).join(', ');
   const updateColumns = columns.filter((column) => !definition.primaryKeys.includes(column));
   const updateClause = updateColumns
-    .map((column) => `${column} = VALUES(${column})`)
+    .map((column) => `${column} = new_values.${column}`)
     .join(', ');
   const values = rows.flat();
 
   await db.execute(
     `INSERT INTO ${definition.table} (${columns.join(', ')})
      VALUES ${placeholders}
+     AS new_values
      ON DUPLICATE KEY UPDATE ${updateClause}`,
     values
   );
@@ -266,6 +268,8 @@ export const upsertMasterData = async (masterName, payload) => {
 
 export const getStages = async (languageId = DEFAULT_LANGUAGE_ID) => {
   const lang = normalizeLanguageId(languageId);
+  const terminalPlaceholders = TERMINAL_STAGE_KEYS.map(() => '?').join(', ');
+  const reasonRequiredPlaceholders = REASON_REQUIRED_STAGE_KEYS.map(() => '?').join(', ');
 
   return getCachedRows(`stages:${lang}`, async () => {
     const [rows] = await db.execute(
@@ -273,12 +277,17 @@ export const getStages = async (languageId = DEFAULT_LANGUAGE_ID) => {
          sm.stage_code,
          sm.stage_key,
          COALESCE(t.stage_in_lang, en.stage_in_lang, sm.stage_key) AS label,
-         sm.stage_code AS sequence,
+         COALESCE(sm.seq, sm.stage_code) AS sequence,
+         sm.seq,
          sm.progress,
          CASE
-           WHEN sm.stage_key IN ('CONVERTED', 'DROPPED') THEN 1
+           WHEN sm.stage_key IN (${terminalPlaceholders}) THEN 1
            ELSE 0
-         END AS is_terminal
+         END AS is_terminal,
+         CASE
+           WHEN sm.stage_key IN (${reasonRequiredPlaceholders}) THEN 1
+           ELSE 0
+         END AS requires_reason
        FROM md_stages sm
        LEFT JOIN md_stages_translation en
          ON en.stage_code = sm.stage_code
@@ -286,8 +295,13 @@ export const getStages = async (languageId = DEFAULT_LANGUAGE_ID) => {
        LEFT JOIN md_stages_translation t
          ON t.stage_code = sm.stage_code
         AND t.lang_id = ?
-       ORDER BY sm.stage_code`,
-      [DEFAULT_LANGUAGE_ID, lang]
+       ORDER BY COALESCE(sm.seq, sm.stage_code), sm.stage_code`,
+      [
+        ...TERMINAL_STAGE_KEYS,
+        ...REASON_REQUIRED_STAGE_KEYS,
+        DEFAULT_LANGUAGE_ID,
+        lang
+      ]
     );
 
     return rows;
@@ -329,12 +343,13 @@ export const getActivityStatus = async (languageId = DEFAULT_LANGUAGE_ID) => {
          a.activity_id,
          a.activity_title,
          COALESCE(t.translated_title, a.activity_title) AS label,
+         a.seq,
          a.lang_id
        FROM md_activity_status a
        LEFT JOIN md_activity_status_translated t
          ON t.activity_id = a.activity_id
         AND t.lang_id = ?
-       ORDER BY a.activity_id`,
+       ORDER BY COALESCE(a.seq, a.activity_id), a.activity_id`,
       [lang]
     );
 
