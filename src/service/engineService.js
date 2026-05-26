@@ -4,107 +4,178 @@ import { sendEmail } from '../utils/sendEmail.js';
 import { sendSMS } from '../utils/sendSMS.js';
 import { sendWhatsapp } from '../utils/sendWhatsapp.js';
 
+const BATCH_SIZE = 100;
+const MAX_ATTEMPTS = 3;
 const WORKER_ID = `${os.hostname()}-${process.pid}`;
-const MAX_RETRY = 3;
-const BATCH_SIZE = 1000;
+
+
 export const resetStuckJobs = async () => {
     try {
-        const [result] = await db.query(`CALL sp_reset_stuck_jobs()`);
+        const [result] = await db.query(
+            `UPDATE td_messages_queue
+             SET status = 'PENDING', last_attempt_at = NULL
+             WHERE status = 'PROCESSING'
+               AND last_attempt_at < NOW() - INTERVAL 15 MINUTE`
+        );
         if (result.affectedRows > 0) {
-            console.log(`Reset ${result.affectedRows} stuck jobs`);
+            console.log(`[ENGINE] Reset ${result.affectedRows} stuck jobs`);
         }
     } catch (err) {
-        console.log('Reset Job Error:', err);
+        console.error('[ENGINE] Reset Job Error:', err.message);
     }
 };
+
 export const processQueue = async () => {
     let connection;
     try {
         connection = await db.getConnection();
-        const [claimResult] = await connection.query(`CALL sp_claim_queue_messages(?, ?, ?)`, [WORKER_ID, MAX_RETRY, BATCH_SIZE]);
-        if (claimResult.affectedRows === 0) {
-            console.log('No pending messages');
+        await connection.beginTransaction();
+
+        await connection.query(
+            `UPDATE td_messages_queue
+             SET status = 'PROCESSING', last_attempt_at = NOW()
+             WHERE status = 'PENDING'
+               AND isActive = 1
+               AND attempt_number < max_attempt_number
+             LIMIT ?`,
+            [BATCH_SIZE]
+        );
+
+        const [messages] = await connection.query(
+            `SELECT
+               id,
+               channel,
+               prospect_id,
+               template_id,
+               to_address,
+               payload,
+               attempt_number,
+               max_attempt_number,
+               created_by
+             FROM td_messages_queue
+             WHERE status = 'PROCESSING'
+               AND last_attempt_at >= NOW() - INTERVAL 1 MINUTE`
+        );
+
+        await connection.commit();
+        connection.release();
+        connection = null;
+
+        if (messages.length === 0) {
+            console.log('[ENGINE] No pending messages');
             return;
         }
-        console.log(`Claimed ${claimResult.affectedRows} messages`);
-        const [[messages]] = await connection.query(`CALL sp_get_worker_messages(?)`, [WORKER_ID]);
+
+        console.log(`[ENGINE] Processing ${messages.length} messages`);
+
         const successIds = [];
-        const failedIds = [];
-        const logs = [];
+        const failedIds  = [];
+        const logs       = [];
+
         for (const msg of messages) {
+            // Parse payload — stored as JSON string in DB
+            let parsed = {};
+            try {
+                parsed = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+            } catch (_) {}
+
+            const body    = parsed.body    || '';
+            const subject = parsed.subject || '';
+
             try {
                 let response = null;
-                if (msg.channel === 1) {
+
+                if (msg.channel === 'EMAIL') {
                     response = await sendEmail({
                         to: msg.to_address,
-                        subject: msg.subject,
-                        body: msg.body
+                        subject,
+                        body,
                     });
-                } else if (msg.channel === 2) {
-
+                } else if (msg.channel === 'SMS') {
                     response = await sendSMS({
                         to_address: msg.to_address,
-                        body: msg.body
+                        body,
                     });
-                } else if (msg.channel === 3) {
-
+                } else if (msg.channel === 'WHATSAPP') {
                     response = await sendWhatsapp({
                         to_address: msg.to_address,
-                        body: msg.body
+                        body,
                     });
                 }
+
                 successIds.push(msg.id);
+
                 logs.push([
-                    msg.id,
-                    msg.channel,
-                    3,
-                    response?.provider || null,
-                    response?.messageId || null,
-                    null,
-                    JSON.stringify(response || {})
+                    msg.id,                          // queue_id
+                    msg.channel,                     // channel ENUM string
+                    msg.to_address,                  // to_address (required in real table)
+                    response?.provider      || null, // provider
+                    response?.messageId     || null, // provider_msg_id
+                    'SUCCESS',                       // status ENUM('SUCCESS','FAILED')
+                    null,                            // error_message
+                    JSON.stringify(response || {}),  // response_body
+                    msg.attempt_number + 1,          // attempt_number
                 ]);
 
             } catch (err) {
                 failedIds.push(msg.id);
+
                 logs.push([
                     msg.id,
                     msg.channel,
-                    4,
+                    msg.to_address,
                     null,
                     null,
+                    'FAILED',
                     err.message,
-                    null
+                    null,
+                    msg.attempt_number + 1,
                 ]);
             }
         }
+
+        
         if (successIds.length > 0) {
-            await connection.query(`CALL sp_mark_success_messages(?)`, [successIds.join(',')]);
-        }
-        if (failedIds.length > 0) {
-            await connection.query(`CALL sp_mark_failed_messages(?, ?)`, [failedIds.join(','),MAX_RETRY]);
-        }
-        if (logs.length > 0) {
-           await connection.query(`
-            INSERT INTO td_message_logs (
-            queue_id,
-            channel,
-            status,
-            provider,
-            provider_message_id,
-            error_message,
-            response_body
-            )
-            VALUES ?
-            `,
-            [logs]);
+            await db.query(
+                `UPDATE td_messages_queue
+                 SET status = 'SENT', sent_at = NOW(),
+                     attempt_number = attempt_number + 1
+                 WHERE id IN (?)`,
+                [successIds]
+            );
         }
 
-        console.log('Queue processing completed');
-    } catch (err) {
-        console.log('Worker Error:', err);
-    } finally {
-        if (connection) {
-            connection.release();
+        
+        if (failedIds.length > 0) {
+            await db.query(
+                `UPDATE td_messages_queue
+                 SET status = CASE
+                       WHEN attempt_number + 1 >= max_attempt_number THEN 'FAILED'
+                       ELSE 'PENDING'
+                     END,
+                     attempt_number = attempt_number + 1,
+                     last_attempt_at = NOW()
+                 WHERE id IN (?)`,
+                [failedIds]
+            );
         }
+
+       
+        if (logs.length > 0) {
+            await db.query(
+                `INSERT INTO td_messages_logs
+                   (queue_id, channel, to_address, provider, provider_msg_id,
+                    status, error_message, response_body, attempt_number)
+                 VALUES ?`,
+                [logs]
+            );
+        }
+
+        console.log(`[ENGINE] Done — sent: ${successIds.length}, failed: ${failedIds.length}`);
+
+    } catch (err) {
+        console.error('[ENGINE] Worker Error:', err.message);
+    } finally {
+        if (connection) connection.release();
     }
 };

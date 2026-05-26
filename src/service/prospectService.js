@@ -1,3 +1,5 @@
+import db from '../config/db.js';
+
 export const moveStage = async ({ prospectId, newStageLg, reasonId, userId }, db) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
@@ -36,7 +38,7 @@ export const moveStage = async ({ prospectId, newStageLg, reasonId, userId }, db
 export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adminId }, db) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
-try {
+  try {
     const ids = Array.isArray(prospectIds) ? prospectIds : [prospectIds];
     await connection.query(
       'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
@@ -63,7 +65,6 @@ export const bulkInsertProspects = async (
   lag_id = 'EN',
   db
 ) => {
-
   const values = [];
   const InvalidProspect = [];
 
@@ -72,66 +73,77 @@ export const bulkInsertProspects = async (
       InvalidProspect.push(p);
       continue;
     }
-    // check duplicate prospect
+
+    // Check for duplicate by email or phone
     const [existing] = await db.query(
-      `
-        SELECT id 
-        FROM md_prospects
-        WHERE email = ? OR phone = ?
-        LIMIT 1
-      `,
-      [p.email ||null, p.phone ||null]
+      `SELECT id FROM md_prospects WHERE email = ? OR phone = ? LIMIT 1`,
+      [p.email || null, p.phone || null]
     );
-    if (existing.length > 0) {
-      continue;
+    if (existing.length > 0) continue;
+
+    // If country_iso is provided, fetch the dial_code automatically from md_countries
+    let dial_code = p.dial_code || null;
+    if (p.country_iso && !dial_code) {
+      const [countryRows] = await db.query(
+        `SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1`,
+        [p.country_iso]
+      );
+      if (countryRows.length > 0) {
+        dial_code = countryRows[0].dial_code;
+      }
     }
 
     values.push([
-      p.company_name || null,
-      p.contact_name || null,
-      p.job_title || null,
-      p.email,
-      p.phone,
-      p.linkedin_url || null,
-      p.twitter_url || null,
-      p.facebook_url || null,
-      p.instagram_url || null,
-      1,
+      p.company_name   || null,
+      p.first_name     || null,
+      p.last_name      || null,
+      p.job_title      || null,
+      p.email          || null,
+      p.phone          || null,
+      p.country_iso    || null,   
+      dial_code,                  
+      p.linkedin_url   || null,
+      p.twitter_url    || null,
+      p.facebook_url   || null,
+      p.instagram_url  || null,
+      1,                          // stage_code default = 1 (PENDING)
       userId,
-      p.source_id || null
+      p.source_id      || null,
     ]);
   }
 
-  if (values.length == 0) {
-    return {
-      inserted: 0,
-      skipped: prospects.length
-    };
+  if (values.length === 0) {
+    return { inserted: 0, skipped: prospects.length };
   }
 
   const [result] = await db.query(
-    `
-      INSERT INTO md_prospects (
-        company_name,
-        contact_name,
-        job_title,
-        email,
-        phone,
-        linkedin_url,
-        twitter_url,
-        facebook_url,
-        instagram_url,
-        stage_code,
-        created_by,
-        source_id
-      )
-      VALUES ?
-    `,
+    `INSERT INTO md_prospects (
+      company_name, first_name, last_name, job_title,
+      email, phone,
+      country_iso, dial_code,
+      linkedin_url, twitter_url, facebook_url, instagram_url,
+      stage_code, created_by, source_id
+    ) VALUES ?`,
     [values]
   );
 
   return {
     inserted: result.affectedRows,
-    skipped: prospects.length - result.affectedRows
+    skipped: prospects.length - result.affectedRows,
   };
+};
+export const getCountries = async () => {
+  const [rows] = await db.query(
+    `SELECT
+       id,
+       iso_code,
+       iso_code3,
+       country_name,
+       dial_code,
+       flag_svg_url
+     FROM md_countries
+     WHERE is_active = 1
+     ORDER BY country_name ASC`
+  );
+  return rows;
 };

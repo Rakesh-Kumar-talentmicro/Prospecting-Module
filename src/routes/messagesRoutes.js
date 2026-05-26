@@ -11,5 +11,3 @@ router.post('/templates', controller.postTemplates);
 router.put('/templates/:id', controller.updateTemplates);
 router.get('/templates', controller.getTemplates); 
 export default router;
-
-
