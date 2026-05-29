@@ -3,6 +3,7 @@ import os from 'os';
 import { sendEmail } from '../utils/sendEmail.js';
 import { sendSMS } from '../utils/sendSMS.js';
 import { sendWhatsapp } from '../utils/sendWhatsapp.js';
+import { closeActivitiesByQueueIds } from './activityService.js';
 
 const BATCH_SIZE = 100;
 const MAX_ATTEMPTS = 3;

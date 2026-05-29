@@ -5,6 +5,7 @@ const router = express.Router();
 
 router.post('/sendBulk', controller.sendBulk);
 router.post('/sendSingle', controller.sendSingle);
+router.post('/sendCustom', controller.sendCustom);
 router.get('/queue', controller.queue);
 
 router.post('/templates', controller.postTemplates);

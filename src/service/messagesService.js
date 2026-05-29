@@ -1,5 +1,88 @@
 import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
+import { createPendingMessageActivity } from './activityService.js';
+
+const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
+
+const normalizeChannel = (channel) => {
+  const normalized = String(channel || '').trim().toUpperCase();
+
+  if (!ALLOWED_CHANNELS.includes(normalized)) {
+    throw CreateError(400, 'channel must be EMAIL, SMS, or WHATSAPP');
+  }
+
+  return normalized;
+};
+
+const getChannelRow = async (channel, executor) => {
+  const channelName = normalizeChannel(channel);
+  const [[channelRow]] = await executor.query(
+    'SELECT id, channel_name FROM md_message_channel_enum WHERE channel_name = ? LIMIT 1',
+    [channelName]
+  );
+
+  if (!channelRow) {
+    throw CreateError(500, `Message channel "${channelName}" not found`);
+  }
+
+  return channelRow;
+};
+
+const getProspectRecipient = async (prospectId, channelName, executor) => {
+  const [rows] = await executor.query(
+    'SELECT id, email, phone FROM md_prospects WHERE id = ? LIMIT 1',
+    [prospectId]
+  );
+
+  if (rows.length === 0) {
+    throw CreateError(404, 'Prospect not found');
+  }
+
+  const prospect = rows[0];
+  const toAddress = channelName === 'EMAIL' ? prospect.email : prospect.phone;
+
+  if (!toAddress) {
+    throw CreateError(400, 'Recipient address not found');
+  }
+
+  return {
+    prospectId: prospect.id,
+    toAddress
+  };
+};
+
+const enqueueRenderedMessage = async ({
+  channelId,
+  channelName,
+  prospectId,
+  toAddress,
+  subject,
+  body,
+  connection
+}) => {
+  const [[callRows]] = await connection.query(
+    `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
+    [
+      channelId,
+      prospectId,
+      toAddress,
+      subject,
+      body
+    ]
+  );
+  const queueId = callRows[0].queue_id;
+  const activity = await createPendingMessageActivity({
+    prospectId,
+    channelName,
+    messageQueueId: queueId
+  }, connection);
+
+  return {
+    queue_id: queueId,
+    activity_id: activity.t_id,
+    message: 'Message queued successfully'
+  };
+};
 
 const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
 
@@ -29,6 +112,7 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
       });
 
       insertedQueueIds.push(result.queue_id);
+      insertedActivityIds.push(result.activity_id);
     }
 
     await connection.commit();
@@ -37,6 +121,8 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
       total_messages: insertedQueueIds.length,
       queue_ids: insertedQueueIds,
       message: 'Bulk messages queued successfully',
+      activity_ids: insertedActivityIds,
+      message: 'Bulk messages queued successfully'
     };
   } catch (err) {
     if (connection) await connection.rollback();
@@ -45,7 +131,6 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
     if (connection) connection.release();
   }
 };
-
 
 export const enqueueMessage = async ({
   template_id,
@@ -74,6 +159,35 @@ export const enqueueMessage = async ({
        FROM md_message_templates t
        INNER JOIN md_prospects p ON p.id = ?
        WHERE t.id = ?`,
+
+  export const enqueueMessage = async ({template_id,prospect_id,payload = {},userId,connection = null}) => {
+  let ownConnection;
+  try {
+    const executor = connection || (ownConnection = await db.getConnection());
+
+    if (ownConnection) {
+      await ownConnection.beginTransaction();
+    }
+
+    const [rows] = await executor.query(
+      `SELECT
+        t.id AS template_id,
+        c.channel_name,
+        c.id AS channel,
+        t.subject,
+        t.body,
+        t.variables,
+        p.id AS prospect_id,
+        p.contact_name,
+        p.company_name,
+        p.email,
+        p.phone
+      FROM md_message_templates t
+      INNER JOIN md_message_channel_enum c
+        ON t.channel = c.id
+      INNER JOIN md_prospects p
+        ON p.id = ?
+      WHERE t.id = ?`,
       [prospect_id, template_id]
     );
 
@@ -114,8 +228,6 @@ export const enqueueMessage = async ({
     if (!toAddress) {
       throw CreateError(400, 'Recipient address not found on prospect');
     }
-
-   
     const [insertResult] = await executor.query(
       `INSERT INTO td_messages_queue
          (prospect_id, channel, template_id, to_address, payload, status, created_by)
@@ -129,16 +241,69 @@ export const enqueueMessage = async ({
         userId,
       ]
     );
+    const result = await enqueueRenderedMessage({
+      channelId: data.channel,
+      channelName: data.channel_name,
+      prospectId: data.prospect_id,
+      toAddress,
+      subject: finalSubject,
+      body: finalBody,
+      connection: executor
+    });
+
+    if (ownConnection) {
+      await ownConnection.commit();
+    }
+
+    return result;
 
     return {
       queue_id: insertResult.insertId,
       message: 'Message queued successfully',
     };
   } catch (err) {
+    if (ownConnection) {
+      await ownConnection.rollback();
+    }
     throw err;
+  } finally {
+    if (ownConnection) {
+      ownConnection.release();
+    }
   }
 };
 
+export const enqueueCustomMessage = async ({ channel, prospect_id, subject = null, body, userId }) => {
+  if (!prospect_id || !body || !userId) {
+    throw CreateError(400, 'Missing required fields');
+  }
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const channelRow = await getChannelRow(channel, connection);
+    const recipient = await getProspectRecipient(prospect_id, channelRow.channel_name, connection);
+    const result = await enqueueRenderedMessage({
+      channelId: channelRow.id,
+      channelName: channelRow.channel_name,
+      prospectId: recipient.prospectId,
+      toAddress: recipient.toAddress,
+      subject,
+      body,
+      connection
+    });
+
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+    } finally {
+    connection.release();
+  }
+};
 
 export const queue = async ({ channel, prospect_id, limit, offset }) => {
   try {
@@ -186,7 +351,6 @@ export const queue = async ({ channel, prospect_id, limit, offset }) => {
   }
 };
 
-
 export const postTemplates = async ({ templateCode, channel, language_id, subject, body }) => {
   try {
     
@@ -209,7 +373,6 @@ export const postTemplates = async ({ templateCode, channel, language_id, subjec
     throw err;
   }
 };
-
 
 export const updateTemplates = async ({ id, data }) => {
   try {
@@ -234,11 +397,19 @@ export const updateTemplates = async ({ id, data }) => {
   }
 };
 
-
 export const getTemplates = async ({ templateCode, channel, language_id, limit, offset }) => {
   try {
     // FIX: no JOIN — filter directly on t.channel ENUM string
     let baseQuery = `FROM md_message_templates t WHERE 1=1`;
+    }
+export const getTemplates = async ({ templateCode, channel, channelNames, language_id, limit, offset }) => {
+  try {
+    const effectiveChannelNames = channelNames || channel;
+    let baseQuery = `
+      FROM md_message_templates t
+      JOIN md_message_channel_enum c ON t.channel = c.id
+      WHERE 1=1
+    `;
     let values = [];
 
     if (templateCode) {
@@ -249,6 +420,9 @@ export const getTemplates = async ({ templateCode, channel, language_id, limit, 
     if (channel && channel.length > 0) {
       baseQuery += ` AND t.channel IN (${channel.map(() => '?').join(',')})`;
       values.push(...channel);
+      if (effectiveChannelNames && effectiveChannelNames.length > 0) {
+      baseQuery += ` AND c.channel_name IN (${effectiveChannelNames.map(() => '?').join(',')})`;
+      values.push(...effectiveChannelNames);
     }
 
     if (language_id) {
