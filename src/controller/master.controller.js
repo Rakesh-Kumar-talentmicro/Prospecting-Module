@@ -10,6 +10,7 @@ const normalizeLanguageId = (languageId) => {
   return languageId.trim().toUpperCase() || DEFAULT_LANGUAGE_ID;
 };
 
+<<<<<<< HEAD
 const sendData = (res, data) => {
   return res.status(200).json({ success: true, data });
 };
@@ -44,6 +45,8 @@ export const saveMasterData = async (req, res, next) => {
   }
 };
 
+=======
+>>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46
 export const getStages = async (req, res, next) => {
   try {
     const lang = normalizeLanguageId(req.query.lang);
