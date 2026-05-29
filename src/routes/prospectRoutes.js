@@ -4,6 +4,7 @@ import { upload, parseExcelMiddleware } from '../middleware/excelParser.js';
 
 const router = express.Router();
 
+<<<<<<< HEAD
 // Get countries for dropdown
 router.get('/countries', prospectController.getCountries); 
 
@@ -32,3 +33,14 @@ router.patch('/:id/activity/:activityId/success', prospectController.closeActivi
 router.patch('/:id/activity/:activityId/cancel', prospectController.cancelActivity);
 
 export default router;
+=======
+router.post('/upload', upload.array('file'), parseExcelMiddleware, prospectController.uploadProspects);
+router.patch('/transfer', prospectController.transferProspects);
+router.get('/', prospectController.listProspects);
+router.get('/:id', prospectController.getProspect);
+router.patch('/:id', prospectController.updateProspect);
+router.patch('/:id/move-stage', prospectController.moveStage);
+router.get('/:id/history', prospectController.getProspectHistory);
+
+export default router;
+>>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46

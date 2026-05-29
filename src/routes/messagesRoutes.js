@@ -3,12 +3,13 @@ import * as controller from '../controller/messagesController.js';
 
 const router = express.Router();
 
-router.post('/sendBulk', controller.sendBulk);
-router.post('/sendSingle', controller.sendSingle);
+router.post('/sendBulk', controller.sendBulk);      
+router.post('/sendSingle', controller.sendSingle);  
 router.post('/sendCustom', controller.sendCustom);
-router.get('/queue', controller.queue);
+router.get('/queue', controller.queue);             
 
-router.post('/templates', controller.postTemplates);
-router.put('/templates/:id', controller.updateTemplates);
-router.get('/templates', controller.getTemplates); 
+router.post('/templates', controller.postTemplates); // Create template
+router.put('/templates/:id', controller.updateTemplates); // Update template
+router.get('/templates', controller.getTemplates); // List templates
+// router.get('/health', controller.healthCheck);
 export default router;

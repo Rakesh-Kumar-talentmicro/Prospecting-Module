@@ -7,7 +7,6 @@ import reportRoutes from './src/routes/reportRoutes.js';
 import dashboardRoutes from "./src/routes/dashboardRoutes.js";
 import dotenv from 'dotenv';
 import errorHandler from "./src/middleware/errorHandler.js";
-//import { createAllTable } from './src/utils/allDbInstance.js';
 
 dotenv.config();
 
@@ -16,6 +15,7 @@ app.use(express.json());
 // createAllTable();
 
 
+//createAllTable();                 ----> This function will create all tables from models directly into each system 
 app.use('/messages', messagesRoutes);
 app.use('/prospects', prospectRoutes);
 app.use('/masters', masterRoutes);
