@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { createMasterTables } from "../model/masterModel/index.js";
 import { createMessageTables } from "../model/messageModel/index.js";
 import { createProspectTables } from "../model/prospectModel/index.js";
@@ -8,12 +7,3 @@ export async function createAllTable(){
     await createProspectTables();
     await createMessageTables();
 }
-=======
-import { createMasterTables } from "../model/masterModel";
-import { createMessageTables } from "../model/messageModel";
-
-export async function createAllTable(){
-    await createMasterTables();
-    await createMessageTables();
-}
->>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46
