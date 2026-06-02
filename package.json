@@ -7,6 +7,8 @@
     "start": "nodemon index.js",
     "worker": "nodemon src/worker/worker.js",
     "worker2": "nodemon src/worker/workerProspects.js",
+    "import-worker": "node src/worker/prospectImportWorker.js",
+    "import-worker:dev": "nodemon src/worker/prospectImportWorker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,9 +16,13 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@fast-csv/parse": "^5.0.7",
+    "bullmq": "^5.77.3",
     "cron": "^4.4.0",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "ioredis": "^5.10.1",
     "multer": "^2.1.1",
     "mysql2": "^3.22.3",
     "node-cron": "^4.2.1",

@@ -10,7 +10,12 @@ node_modules
 # Logs
 *.log
 
+# Bulk import runtime files
+/storage/
+
 ~$prospects_bulk_import_template.xlsx
 prospects_bulk_import_template.xlsx
 docs
 scripts/full-api-smoke-test.js
+scripts
+Prospecting-Module\prospects_bulk_import_template - md_prospects.csv
