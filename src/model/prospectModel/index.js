@@ -1,4 +1,4 @@
-import { createTable as createProspectsTable } from "./prospects.js";
+import { createTable as createProspectsTable } from "./md_prospects.js";
 import { createTable as createStageLogsTable } from "./stage_logs.js";
 import { createTable as createTransferLogsTable } from "./transfer_logs.js";
 import { prospectMapping } from "./prospectMapping.js";

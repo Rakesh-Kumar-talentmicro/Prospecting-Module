@@ -84,9 +84,6 @@ const enqueueRenderedMessage = async ({
   };
 };
 
-const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
-
-
 export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
   let connection;
   try {

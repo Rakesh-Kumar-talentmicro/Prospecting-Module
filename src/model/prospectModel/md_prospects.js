@@ -1,5 +1,8 @@
-CREATE TABLE IF NOT EXISTS td_prospects (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+import db from "../../config/db.js";
+
+const createTableQuery = `
+CREATE TABLE IF NOT EXISTS md_prospects (
+    id                BIGINT PRIMARY KEY AUTO_INCREMENT,  
     company_name      VARCHAR(255),
     first_name        VARCHAR(255),
     last_name         VARCHAR(255),
@@ -17,9 +20,20 @@ CREATE TABLE IF NOT EXISTS td_prospects (
     preferred_lang_id VARCHAR(10) DEFAULT 'EN',
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    updated_by         BIGINT,
-    status             SMALLINT DEFAULT 1,
+    bd_id             BIGINT,
+    duplicate_key     VARCHAR(255) UNIQUE,
+    UNIQUE KEY uq_prospect (email, phone, company_name),
     INDEX idx_email (email),
     INDEX idx_phone (phone),
-    INDEX idx_source (source_id)
+    INDEX idx_source (source_id) 
 );
+`;
+
+export async function createTable() {
+    try {
+        await db.execute(createTableQuery);
+        console.log("md_prospects table created successfully")
+    } catch (err) {
+        console.error("Error creating md_prospects table", err);
+    }
+}
