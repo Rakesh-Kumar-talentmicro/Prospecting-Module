@@ -801,3 +801,312 @@ export const getCountries = async () => {
   );
   return rows;
 };
+
+export const processProspect = async () => {
+
+  let connection;
+
+  try {
+
+    connection = await db.getConnection();
+
+    await connection.beginTransaction();
+
+    /* ---------------------------------------------
+       STEP 1: PICK BATCH
+    --------------------------------------------- */
+
+    const [tdProspectsRows] =
+      await connection.query(
+        `
+        SELECT
+          id,
+          company_name,
+          first_name,
+          last_name,
+          job_title,
+          email,
+          phone,
+          city,
+          state,
+          country,
+          industry_id,
+          industry_size_id,
+          website_url,
+          source_id,
+          referral_name,
+          preferred_lang_id,
+          bd_id,
+          duplicate_count,
+          duplicate_key
+        FROM td_prospects
+        WHERE status = 1
+        ORDER BY id
+        LIMIT ?
+        FOR UPDATE SKIP LOCKED
+        `,
+        [PROCESS_BATCH_SIZE]
+      );
+
+    if (!tdProspectsRows.length) {
+
+      await connection.commit();
+
+      return {
+        processed: 0
+      };
+    }
+
+    /* ---------------------------------------------
+       STEP 2: LOCK ROWS
+    --------------------------------------------- */
+
+    const ids = tdProspectsRows.map(r => r.id);
+
+    await connection.query(
+      `
+      UPDATE td_prospects
+      SET status = 2
+      WHERE id IN (?)
+      `,
+      [ids]
+    );
+
+    /* ---------------------------------------------
+       STEP 3: FIND EXISTING KEYS
+    --------------------------------------------- */
+
+    const duplicateKeys =
+      tdProspectsRows.map(r => r.duplicate_key);
+
+    const [existingRows] =
+      await connection.query(
+        `
+        SELECT
+          duplicate_key
+        FROM md_prospects
+        WHERE duplicate_key IN (?)
+        `,
+        [duplicateKeys]
+      );
+
+    const existingMap = new Map();
+
+    for (const row of existingRows) {
+      existingMap.set(row.duplicate_key, true);
+    }
+
+    /* ---------------------------------------------
+       STEP 4: PREPARE BULK ARRAYS
+    --------------------------------------------- */
+
+    const mdProspectsValues = [];
+
+    const assignmentValues = [];
+
+    const stageValues = [];
+
+    const duplicateValues = [];
+
+    for (const row of tdProspectsRows) {
+
+      const alreadyExists =
+        existingMap.has(row.duplicate_key);
+
+      /* -----------------------------------------
+         DUPLICATE
+      ----------------------------------------- */
+
+      if (alreadyExists) {
+
+        duplicateValues.push([
+          row.duplicate_key,
+          'DUPLICATE',
+          row.bd_id,
+          row.source_id,
+          row.duplicate_count
+        ]);
+
+        continue;
+      }
+
+      existingMap.set(row.duplicate_key, true);
+
+      /* -----------------------------------------
+         md_prospects
+      ----------------------------------------- */
+
+      mdProspectsValues.push([
+
+        row.company_name,
+        row.first_name,
+        row.last_name,
+        row.job_title,
+        row.email,
+        row.phone,
+        row.city,
+        row.state,
+        row.country,
+        row.industry_id,
+        row.industry_size_id,
+        row.website_url,
+        row.source_id,
+        row.referral_name,
+        row.preferred_lang_id,
+        row.bd_id,
+        row.duplicate_key
+      ]);
+
+      /* -----------------------------------------
+         assignment
+      ----------------------------------------- */
+
+      assignmentValues.push([
+        row.duplicate_key,
+        null,
+        row.bd_id,
+        row.source_id
+      ]);
+
+      /* -----------------------------------------
+         stage
+      ----------------------------------------- */
+
+      stageValues.push([
+        row.duplicate_key,
+        1,
+        null,
+        row.bd_id
+      ]);
+    }
+
+    /* ---------------------------------------------
+       STEP 5: INSERT md_prospects
+    --------------------------------------------- */
+
+    if (mdProspectsValues.length) {
+
+      await connection.query(
+        `
+        INSERT IGNORE INTO md_prospects (
+          company_name,
+          first_name,
+          last_name,
+          job_title,
+          email,
+          phone,
+          city,
+          state,
+          country,
+          industry_id,
+          industry_size_id,
+          website_url,
+          source_id,
+          referral_name,
+          preferred_lang_id,
+          updated_by,
+          duplicate_key
+        )
+        VALUES ?
+        `,
+        [mdProspectsValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 6: INSERT ASSIGNMENT
+    --------------------------------------------- */
+
+    if (assignmentValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_prospect_assignment (
+          duplicate_key,
+          assigned_to,
+          bd_id,
+          source_by
+        )
+        VALUES ?
+        `,
+        [assignmentValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 7: INSERT STAGE HISTORY
+    --------------------------------------------- */
+
+    if (stageValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_prospect_stage_history (
+          duplicate_key,
+          stage_code,
+          reason_id,
+          bd_id
+        )
+        VALUES ?
+        `,
+        [stageValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 8: INSERT DUPLICATES
+    --------------------------------------------- */
+
+    if (duplicateValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_duplicate (
+          duplicate_key,
+          stage_status,
+          bd_id,
+          source_id,
+          count
+        )
+        VALUES ?
+        `,
+        [duplicateValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 9: MARK COMPLETED
+    --------------------------------------------- */
+
+    await connection.query(
+      `
+      UPDATE td_prospects
+      SET status = 3
+      WHERE id IN (?)
+      `,
+      [ids]
+    );
+
+    await connection.commit();
+
+    return {
+      processed: tdProspectsRows.length,
+      inserted: mdProspectsValues.length,
+      duplicates: duplicateValues.length
+    };
+
+  } catch (err) {
+
+    if (connection) {
+      await connection.rollback();
+    }
+
+    throw err;
+
+  } finally {
+
+    if (connection) {
+      connection.release();
+    }
+  }
+};

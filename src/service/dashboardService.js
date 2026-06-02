@@ -10,9 +10,9 @@ export const getDashboardTiles = async () => {
     SUM(stage_code = 5) AS parked
     FROM td_prospect_stage_history t1
     JOIN (
-    SELECT prospect_id, MAX(id) max_id
+    SELECT duplicate_key, MAX(id) max_id
     FROM td_prospect_stage_history
-    GROUP BY prospect_id
+    GROUP BY duplicate_key
     ) t2
     ON t1.id = t2.max_id;`);
     return rows[0] || {
@@ -38,10 +38,10 @@ export const getBD = async () => {
             SUM(ls.stage_code = 5) AS parked
 
         FROM (
-            SELECT a1.prospect_id, a1.assigned_to
+            SELECT a1.duplicate_key, a1.assigned_to
             FROM td_prospect_assignment a1
             INNER JOIN (
-                SELECT prospect_id, MAX(id) AS max_id
+                SELECT duplicate_key, MAX(id) AS max_id
                 FROM td_prospect_assignment
                 GROUP BY prospect_id
             ) a2
@@ -81,7 +81,7 @@ export const monthlyCT = async () => {
     const [rows] = await db.query(`
         SELECT
             DATE_FORMAT(created_at, '%Y-%m') AS month,
-            COUNT(DISTINCT prospect_id) AS converted_count
+            COUNT(DISTINCT duplicate_key) AS converted_count
         FROM td_prospect_stage_history
         WHERE stage_code = 4
           AND created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
@@ -99,7 +99,7 @@ export const bdmonthlyCT = async () => {
         SELECT
             a.assigned_to AS bd_user_id,
             DATE_FORMAT(s.created_at, '%Y-%m') AS month,
-            COUNT(DISTINCT s.prospect_id) AS converted_count
+            COUNT(DISTINCT s.duplicate_key) AS converted_count
         FROM td_prospect_stage_history s
         JOIN td_prospect_assignment a
             ON a.prospect_id = s.prospect_id

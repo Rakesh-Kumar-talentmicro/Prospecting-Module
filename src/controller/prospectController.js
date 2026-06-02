@@ -5,7 +5,7 @@ import { prospectMapping } from '../model/prospectModel/prospectMapping.js';
 import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 
-export const uploadProspects = async (req, res,  next) => {
+export const uploadProspects = async (req, res, next) => {
     try {
         const { prospects } = req.body;
         const normalizedProspects = normalizeInputData(prospects, prospectMapping);
@@ -38,27 +38,74 @@ export const createProspect = async (req, res, next) => {
     }
 };
 
-export const listProspects = async (req, res,  next) => {
+export const listProspects = async (req, res, next) => {
     try {
-        const { assigned_user_id, stage_code, page, limit} = req.query;
-        let limits = parseInt(limit) || 50;
-        let offset = parseInt((page-1)*limits);
+        const {
+            assigned_to,
+            assigned_user_id,
+            stage_code,
+            source_id,
+            industry_id,
+            industry_size_id,
+            page,
+            last_id = 0,
+            limit = 50
+        } = req.query;
 
-        let query = 'SELECT * FROM md_prospects WHERE 1=1';
-        const value = [];
+        const assignee = assigned_to ?? assigned_user_id;
+        const parsedLimit = parseInt(limit, 10) || 50;
+
+        let query = `
+            SELECT p.*, s.stage_code, a.assigned_to, a.assigned_by, a.source_by
+            FROM md_prospects p
+            LEFT JOIN (
+                SELECT prospect_id, stage_code FROM (
+                    SELECT
+                        prospect_id,
+                        stage_code,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY prospect_id
+                            ORDER BY created_at DESC
+                        ) AS rn
+                    FROM td_prospect_stage_history
+                ) s1 WHERE rn = 1
+            ) s ON s.prospect_id = p.id
+            LEFT JOIN (
+                SELECT prospect_id, assigned_to, assigned_by, source_by FROM (
+                    SELECT
+                        prospect_id,
+                        assigned_to,
+                        assigned_by,
+                        source_by,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY prospect_id
+                            ORDER BY created_at DESC
+                        ) AS rn
+                    FROM td_prospect_assignment
+                ) a1 WHERE rn = 1
+            ) a ON a.prospect_id = p.id
+            WHERE 1=1
+        `;
+
+        const values = [];
 
         if (assignee) {
-            query += ' AND p.a.assigned_to = ?';
+            query += ' AND a.assigned_to = ?';
             values.push(assignee);
         }
         if (stage_code) {
-            query += ' AND p.s.stage_code = ?';
+            query += ' AND s.stage_code = ?';
             values.push(stage_code);
         }
 
-        // query += ' AND id > ? ORDER BY id ASC LIMIT ?';
-        query += ' LIMIT ? OFFSET ?'
-        value.push(limits,offset);
+        if (page) {
+            const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+            query += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
+            values.push(parsedLimit, (parsedPage - 1) * parsedLimit);
+        } else {
+            query += ' AND p.id > ? ORDER BY p.id ASC LIMIT ?';
+            values.push(parseInt(last_id, 10) || 0, parsedLimit);
+        }
 
         const [rows] = await db.query(query, value);
         let prospects = normalizeOutputData(rows, prospectMapping);
@@ -67,7 +114,6 @@ export const listProspects = async (req, res,  next) => {
         next(err);
     }
 };
-
 
 export const getProspect = async (req, res,  next) => {
     try {
@@ -92,7 +138,7 @@ export const getProspect = async (req, res,  next) => {
     }
 };
 
-export const updateProspect = async (req, res,  next) => {
+export const updateProspect = async (req, res, next) => {
     try {
         const { id } = req.params;
         const updates = normalizeInputData([req.body], prospectMapping)[0];
@@ -119,7 +165,7 @@ export const updateProspect = async (req, res,  next) => {
     }
 };
 
-export const moveStage = async (req, res,  next) => {
+export const moveStage = async (req, res, next) => {
     try {
         const { id: prospectId } = req.params;
         const newStage = req.body.newStage ?? req.body.stageCode ?? req.body.stage_code;
@@ -127,15 +173,13 @@ export const moveStage = async (req, res,  next) => {
         const reasonId = req.body.reasonId ?? req.body.reason_id;
         const userId = req.headers['user-id'] || 1;
 
-        const result = await prospectService.moveStage(
-            {
+        const result = await prospectService.moveStage({
             prospectId,
             newStage,
             newStageLg,
             reasonId,
             userId
-        }, db
-        );
+        }, db);
 
         return res.json(result);
     } catch (err) {
@@ -145,17 +189,25 @@ export const moveStage = async (req, res,  next) => {
 
 export const transferProspects = async (req, res, next) => {
     try {
-        const { prospectIds, toUserId } = req.body;
+        const { prospectIds } = req.body;
+        const toUserId = req.body.toUserId ?? req.body.assigned_to;
         const fromUserId = req.headers['user-id'] || 1;
-        const adminId = req.headers['admin-id'] || 1;
-        const result = await prospectService.transferProspects({ prospectIds, toUserId, fromUserId, adminId }, db);
-        res.json(result);
+        const adminId = req.headers['admin-id'] || fromUserId;
+
+        const result = await prospectService.transferProspects({
+            prospectIds,
+            toUserId,
+            fromUserId,
+            adminId
+        }, db);
+
+        return res.json(result);
     } catch (err) {
         next(err);
     }
 };
 
-export const getProspectHistory = async (req, res,  next) => {
+export const getProspectHistory = async (req, res, next) => {
     try {
         const { id } = req.params;
         const pId = parseInt(id, 10);
@@ -242,7 +294,10 @@ export const cancelActivity = async (req, res, next) => {
     } catch (err) {
         next(err);
     }
-};export const getCountries = async (req, res, next) => {
+
+};
+
+export const getCountries = async (req, res, next) => {
     try {
         const data = await prospectService.getCountries();
         return res.status(200).json({

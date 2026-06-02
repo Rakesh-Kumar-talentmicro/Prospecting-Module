@@ -8,7 +8,6 @@ const router = express.Router();
 router.get('/countries', prospectController.getCountries); 
 
 // Upload routes
-router.get('/countries', prospectController.getCountries); 
 router.post('/uploadfile', upload.array('file'), parseExcelMiddleware, prospectController.uploadProspects);
 router.post('/upload', prospectController.uploadProspects);
 
