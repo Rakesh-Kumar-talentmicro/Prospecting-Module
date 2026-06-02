@@ -1,8 +1,8 @@
 {
   "name": "task",
   "version": "1.0.0",
-  "type": "module",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "nodemon index.js",
     "worker": "nodemon src/worker/worker.js",
@@ -19,6 +19,8 @@
     "@fast-csv/parse": "^5.0.7",
     "bullmq": "^5.77.3",
     "cron": "^4.4.0",
+    "@sendgrid/mail": "^8.1.6",
+    "axios": "^1.15.2",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
@@ -26,11 +28,16 @@
     "multer": "^2.1.1",
     "mysql2": "^3.22.3",
     "node-cron": "^4.2.1",
-    "nodemailer": "^8.0.7",
+    "nodemailer": "^8.0.8",
     "nodemon": "^3.1.14",
     "pq": "^0.0.3",
     "redis": "^5.12.1",
     "twilio": "^6.0.0",
+    "nodemailer": "^8.0.7",
+    "nodemon": "^3.1.14",
+    "pq": "^0.0.3",
+    "twilio": "^6.0.0",
+    "winston": "^3.19.0",
     "xlsx": "^0.18.5"
   }
 }

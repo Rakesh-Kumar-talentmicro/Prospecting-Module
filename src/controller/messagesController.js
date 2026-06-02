@@ -45,8 +45,8 @@ export const sendSingle = async (req, res, next) => {
       activity_id: result.activity_id
     });
 
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -79,16 +79,12 @@ export const queue = async (req, res, next) => {
     let { channel, prospect_id, page, limit } = req.query;
     page = parseInt(page) || 1;
     limit = parseInt(limit) || 10;
-
     const offset = (page - 1) * limit;
     // Channel normalize
     if (channel) {
-      if (typeof channel === "string") {
-        channel = channel.split(",");
-      }
+      if (typeof channel === 'string') channel = channel.split(',');
     }
 
-    // prospect_id normalize
     if (prospect_id) {
       if (typeof prospect_id === "string") {
         prospect_id = prospect_id.split(",");
@@ -99,7 +95,7 @@ export const queue = async (req, res, next) => {
 
     const allowedChannels = ['EMAIL', 'SMS', 'WHATSAPP'];
     if (channel) {
-      for (let c of channel) {
+      for (const c of channel) {
         if (!allowedChannels.includes(c)) {
           return next(CreateError(400, `Invalid channel: ${c}`));
         }
@@ -115,7 +111,7 @@ export const queue = async (req, res, next) => {
       limit,
       total: result.total,
       totalPages: Math.ceil(result.total / limit),
-      data: result.rows
+      data: result.rows,
     });
 
   } catch (err) {
@@ -126,17 +122,21 @@ export const queue = async (req, res, next) => {
 export const postTemplates = async (req, res, next) => {
   try {
     const { templateCode, channel, language_id, subject, body } = req.body;
+
     if (!templateCode || !channel || !language_id || !subject || !body) {
-      return next(CreateError(400, 'Missing required fields'))
+      return next(CreateError(400, 'Missing required fields'));
     }
+
     const result = await messageService.postTemplates({ templateCode, channel, language_id, subject, body });
+
     if (!result) {
       return next(CreateError(400, 'Template with same code, language and channel already exists'));
     }
+
     return res.status(201).json({ success: true, message: 'Template created successfully' });
-  }
-  catch (err) {
-    next(err);
+
+  } catch (error) {
+    next(CreateError(500, 'Internal Server Error'));
   }
 }
 
@@ -144,16 +144,18 @@ export const updateTemplates = async (req, res, next) => {
   try {
     const { id } = req.params;
     const data = req.body;
+
     if (!id || !data) {
-      return next(CreateError(400, 'Missing required fields'))
+      return next(CreateError(400, 'Missing required fields'));
     }
     const result = await messageService.updateTemplates({id, data});
     if (!result) {
       return next(CreateError(404, 'Template not found'));
     }
-    return res.status(200).json({ success: true, message: "Template updated successfully" });
-  }
-  catch (err) {
+
+    return res.status(200).json({ success: true, message: 'Template updated successfully' });
+
+  } catch (err) {
     next(err);
   }
 }
@@ -164,21 +166,19 @@ export const getTemplates = async (req, res, next) => {
     page = parseInt(page) || 1;
     limit = parseInt(limit) || 30;
     const offset = (page - 1) * limit;
-
-    // Handle multiple channels
     if (channel) {
-      if (typeof channel === "string") {
-        channel = channel.split(",");
-      }
+      if (typeof channel === 'string') channel = channel.split(',');
     }
+
     const allowedChannels = ['EMAIL', 'SMS', 'WHATSAPP'];
     if (channel) {
-      for (let c of channel) {
+      for (const c of channel) {
         if (!allowedChannels.includes(c)) {
           return next(CreateError(400, `Invalid channel: ${c}`));
         }
       }
     }
+
     const result = await messageService.getTemplates({ templateCode, channel, language_id, limit, offset });
     return res.status(200).json({ success: true, count: result.total, data: result.templates });
 

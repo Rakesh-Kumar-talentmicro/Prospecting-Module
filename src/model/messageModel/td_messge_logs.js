@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS td_message_logs (
   status SMALLINT,
   provider VARCHAR(100),
   provider_messageid VARCHAR(255),
+  channel ENUM('EMAIL', 'SMS', 'WHATSAPP') NOT NULL,
+  to_address VARCHAR(500) NOT NULL,
+  provider VARCHAR(100), -- sendgrid, twilio
+  provider_msg_id VARCHAR(255),
+  status ENUM('SUCCESS','FAILED') NOT NULL,
+  response_body TEXT,
   error_message TEXT,
   response_body TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
