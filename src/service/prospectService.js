@@ -562,7 +562,6 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
   const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
-    const ids = Array.isArray(prospectIds) ? prospectIds : [prospectIds];
     const assignee = toRequiredPositiveInteger(toUserId, 'toUserId');
     const assignRows = ids.map((id) => [id, assignee, fromUserId || null, fromUserId || null]);
 

@@ -76,7 +76,8 @@ export const sendCustom = async (req, res, next) => {
 
 export const queue = async (req, res, next) => {
   try {
-    let { channel, prospect_id, page, limit } = req.query;
+    let { status, channel, prospect_id, page, limit } = req.query;
+    if (status && typeof status === 'string') status = status.split(',');
     page = parseInt(page) || 1;
     limit = parseInt(limit) || 10;
     const offset = (page - 1) * limit;
@@ -148,7 +149,7 @@ export const updateTemplates = async (req, res, next) => {
     if (!id || !data) {
       return next(CreateError(400, 'Missing required fields'));
     }
-    const result = await messageService.updateTemplates({id, data});
+    const result = await messageService.updateTemplates(id, data);
     if (!result) {
       return next(CreateError(404, 'Template not found'));
     }

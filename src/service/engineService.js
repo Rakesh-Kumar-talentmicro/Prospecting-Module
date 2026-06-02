@@ -5,9 +5,9 @@ import { sendSMS } from '../utils/sendSMS.js';
 import { sendWhatsapp } from '../utils/sendWhatsapp.js';
 import { closeActivitiesByQueueIds } from './activityService.js';
 
-const BATCH_SIZE = 100;
-const MAX_ATTEMPTS = 3;
-const WORKER_ID = `${os.hostname()}-${process.pid}`;
+// const BATCH_SIZE = 100;
+// const MAX_ATTEMPTS = 3;
+// const WORKER_ID = `${os.hostname()}-${process.pid}`;
 
 
 export const resetStuckJobs = async () => {
