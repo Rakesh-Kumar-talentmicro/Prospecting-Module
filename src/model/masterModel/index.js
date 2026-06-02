@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+import { createTable as createCountriesTable } from "./md_countries.js";
 import { createTable as createActivityStatusTable } from "./md_activity_status.js";
 import { createTable as createActivityStatusTranslatedTable } from "./md_activity_status_translated.js";
 import { createTable as createActivityTypeTable } from "./md_activity_type.js";
@@ -11,14 +11,11 @@ import { createTable as createReasonsTable } from "./md_reasons.js";
 import { createTable as createReasonsTranslatedTable } from "./md_reasons_translated.js";
 import { createTable as createSourcesTable } from "./md_sources.js";
 import { createTable as createSourcesTranslatedTable } from "./md_sources_translated.js";
-=======
-import { createTable as createLanguagesTable } from "./md_languages.js";
-import { createTable as createSourcesTable } from "./md_sources.js";
->>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46
 import { createTable as createStagesTable } from "./md_stages.js";
 import { createTable as createStageTranslationsTable } from "./md_stages_translation.js";
 
 export async function createMasterTables() {
+  await createCountriesTable();
   await createActivityStatusTable();
   await createActivityTypeTable();
   await createIndustrySizeTable();
@@ -36,6 +33,7 @@ export async function createMasterTables() {
 }
 
 export {
+  createCountriesTable,
   createActivityStatusTable,
   createActivityStatusTranslatedTable,
   createActivityTypeTable,
