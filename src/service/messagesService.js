@@ -84,7 +84,18 @@ const enqueueRenderedMessage = async ({
   };
 };
 
-const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
+const renderTemplateText = (text, payload) => {
+  if (!text) {
+    return '';
+  }
+
+  return String(text).replace(/{{(.*?)}}/g, (_, key) => {
+    const normalizedKey = String(key || '').trim();
+    const value = payload?.[normalizedKey];
+    return value === undefined || value === null ? '' : String(value);
+  });
+};
+
 
 
 export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
@@ -200,8 +211,6 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
     return {
       total_messages: insertedQueueIds.length,
       queue_ids: insertedQueueIds,
-      message: 'Bulk messages queued successfully',
-      activity_ids: insertedActivityIds,
       message: 'Bulk messages queued successfully'
     };
 
@@ -289,47 +298,21 @@ export const enqueueMessage = async ({template_id,prospect_id,payload = {},userI
       throw CreateError(400,'Recipient address not found');
     }
 
-    // Insert message into queue
-    const [result] = await connection.query(`
-      INSERT INTO td_messages_queue (
-        prospect_id,
-        channel,
-        template_id,
-        to_address,
-        payload,
-        created_by,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
-      `,
-      [
-        data.prospect_id,
-        data.channel,
-        data.template_id,
-        toAddress,
-        JSON.stringify(finalPayload),
-        userId
-      ]
-    );
-    const result = await enqueueRenderedMessage({
+    const finalSubject = renderTemplateText(data.subject, finalPayload);
+    const finalBody = renderTemplateText(data.body, finalPayload);
+
+    const queued = await enqueueRenderedMessage({
       channelId: data.channel,
       channelName: data.channel_name,
       prospectId: data.prospect_id,
       toAddress,
       subject: finalSubject,
       body: finalBody,
-      connection: executor
+      connection
     });
 
-    if (ownConnection) {
-      await ownConnection.commit();
-    }
-
-    return result;
-
-    return {
-      queue_id: insertResult.insertId,
-      message: 'Message queued successfully',
-    };
+    await connection.commit();
+    return queued;
 
   } catch (error) {
 
@@ -338,7 +321,9 @@ export const enqueueMessage = async ({template_id,prospect_id,payload = {},userI
     }
     throw error;
   } finally {
-    if (ownConnection) ownConnection.release();
+    if (connection) {
+      connection.release();
+    }
   }
 };
 /* 

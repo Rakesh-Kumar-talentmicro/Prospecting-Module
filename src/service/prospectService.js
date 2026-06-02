@@ -1,7 +1,4 @@
-<<<<<<< HEAD
 import db from '../config/db.js';
-
-export const moveStage = async ({ prospectId, newStageLg, reasonId, userId }, db) => {
 import { CreateError } from '../middleware/createError.js';
 import { STAGE_KEYS, isReasonRequiredStage } from '../constants/stages.js';
 
@@ -11,6 +8,8 @@ const DIRECT_SOURCE_KEY = 'DIRECT';
 const allowedProspectColumns = new Set([
   'company_name',
   'contact_name',
+  'first_name',
+  'last_name',
   'job_title',
   'email',
   'phone',
@@ -18,6 +17,12 @@ const allowedProspectColumns = new Set([
   'twitter_url',
   'facebook_url',
   'instagram_url',
+  'city',
+  'state',
+  'country',
+  'country_iso',
+  'dial_code',
+  'website_url',
   'industry_id',
   'industry_size_id',
   'source_id',
@@ -31,6 +36,9 @@ const allowedProspectColumns = new Set([
   'follow_up_date',
   'preferred_lang_id'
 ]);
+
+let prospectColumnsCache = null;
+let duplicateSchemaPromise = null;
 
 const toNullableString = (value) => {
   if (value === undefined || value === null) {
@@ -62,6 +70,61 @@ const toRequiredPositiveInteger = (value, fieldName) => {
   }
 
   return normalized;
+};
+
+const getTableColumns = async (tableName, dbOrConnection = db) => {
+  const [rows] = await dbOrConnection.query(`SHOW COLUMNS FROM ${tableName}`);
+  return new Set(rows.map((row) => row.Field));
+};
+
+const getProspectColumns = async (dbOrConnection = db) => {
+  if (!prospectColumnsCache) {
+    prospectColumnsCache = await getTableColumns('md_prospects', dbOrConnection);
+  }
+
+  return prospectColumnsCache;
+};
+
+const addProspectColumnIfMissing = async (columnName, definition) => {
+  const columns = await getTableColumns('md_prospects');
+  if (!columns.has(columnName)) {
+    await db.query(`ALTER TABLE md_prospects ADD COLUMN ${definition}`);
+    prospectColumnsCache = null;
+  }
+};
+
+const dropProspectIndexIfExists = async (indexName) => {
+  const [rows] = await db.query(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND INDEX_NAME = ?
+     LIMIT 1`,
+    ['md_prospects', indexName]
+  );
+
+  if (rows.length > 0) {
+    await db.query(`ALTER TABLE md_prospects DROP INDEX ${indexName}`);
+  }
+};
+
+const ensureBulkDuplicateSchema = async () => {
+  duplicateSchemaPromise = duplicateSchemaPromise || (async () => {
+    await addProspectColumnIfMissing('is_duplicate', 'is_duplicate TINYINT NOT NULL DEFAULT 0');
+    await addProspectColumnIfMissing(
+      'duplicate_of_prospect_id',
+      'duplicate_of_prospect_id BIGINT NULL'
+    );
+    await dropProspectIndexIfExists('uq_prospect');
+  })();
+
+  try {
+    await duplicateSchemaPromise;
+  } catch (err) {
+    duplicateSchemaPromise = null;
+    throw err;
+  }
 };
 
 const getSourceKey = async (sourceId, dbOrConnection) => {
@@ -313,64 +376,183 @@ const validateReferralName = async ({ sourceId, referralName, currentProspectId 
   return normalizedReferralName;
 };
 
-export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db, sourcedByName = null) => {
-  const stageCode = await getInitialStageCode(db);
-  const defaultSourceId = await getDirectSourceId(db);
+const getExistingProspectMatches = async (dbOrConnection, prospects) => {
+  const emails = [...new Set(prospects.map((p) => toNullableString(p.email)?.toLowerCase()).filter(Boolean))];
+  const phones = [...new Set(prospects.map((p) => toNullableString(p.phone)).filter(Boolean))];
 
-  const rows = prospects.filter(p => p.email || p.phone);
-  if (rows.length === 0) return { inserted: 0, skipped: prospects.length };
+  if (emails.length === 0 && phones.length === 0) {
+    return {
+      byEmail: new Map(),
+      byPhone: new Map()
+    };
+  }
 
-  const emails = rows.map(p => p.email).filter(Boolean);
-  const phones = rows.map(p => p.phone).filter(Boolean);
-
-  let existingEmails = new Set();
-  let existingPhones = new Set();
-
+  const clauses = [];
+  const values = [];
   if (emails.length > 0) {
-    const [existingEmailRows] = await db.query('SELECT email FROM md_prospects WHERE email IN (?)', [emails]);
-    existingEmailRows.forEach(r => existingEmails.add(r.email));
+    clauses.push('LOWER(email) IN (?)');
+    values.push(emails);
   }
   if (phones.length > 0) {
-    const [existingPhoneRows] = await db.query('SELECT phone FROM md_prospects WHERE phone IN (?)', [phones]);
-    existingPhoneRows.forEach(r => existingPhones.add(r.phone));
+    clauses.push('phone IN (?)');
+    values.push(phones);
   }
 
-  const validRows = rows.filter(p => !existingEmails.has(p.email) && !existingPhones.has(p.phone));
-  if (validRows.length === 0) return { inserted: 0, skipped: prospects.length };
-
-  const validValues = [];
-  for (const p of validRows) {
-    p.source_id = p.source_id || defaultSourceId;
-    p.sourced_date = p.sourced_date || new Date();
-    p.sourced_by_name = p.sourced_by_name || sourcedByName || null;
-    await assertProspectReferences(p, db);
-    const referralName = await validateReferralName({
-      sourceId: p.source_id,
-      referralName: p.referral_name
-    }, db);
-
-    validValues.push([
-      p.company_name || null, p.contact_name || null, p.job_title || null,
-      p.email || null, p.phone || null,
-      p.linkedin_url || null, p.twitter_url || null, p.facebook_url || null, p.instagram_url || null,
-      p.industry_id || null, p.industry_size_id || null, stageCode, userId,
-      p.source_id, referralName, p.sourced_date, p.sourced_by_name
-    ]);
-  }
-
-  const [result] = await db.query(
-    `INSERT INTO md_prospects
-       (
-         company_name, contact_name, job_title, email, phone,
-         linkedin_url, twitter_url, facebook_url, instagram_url,
-         industry_id, industry_size_id, stage_code, created_by,
-         source_id, referral_name, sourced_date, sourced_by_name
-       )
-     VALUES ?`,
-    [validValues]
+  const [rows] = await dbOrConnection.query(
+    `SELECT id, email, phone
+     FROM md_prospects
+     WHERE ${clauses.join(' OR ')}
+     ORDER BY id ASC`,
+    values
   );
 
-  return { inserted: result.affectedRows, skipped: prospects.length - result.affectedRows };
+  const byEmail = new Map();
+  const byPhone = new Map();
+  for (const row of rows) {
+    const email = toNullableString(row.email)?.toLowerCase();
+    const phone = toNullableString(row.phone);
+    if (email && !byEmail.has(email)) {
+      byEmail.set(email, row.id);
+    }
+    if (phone && !byPhone.has(phone)) {
+      byPhone.set(phone, row.id);
+    }
+  }
+
+  return { byEmail, byPhone };
+};
+
+const resolveDialCode = async (prospect, dbOrConnection) => {
+  if (prospect.dial_code || !prospect.country_iso) {
+    return prospect.dial_code || null;
+  }
+
+  const [countryRows] = await dbOrConnection.query(
+    'SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1',
+    [prospect.country_iso]
+  );
+
+  return countryRows[0]?.dial_code || null;
+};
+
+const insertProspectRow = async ({ row, columns, dbOrConnection }) => {
+  const insertColumns = columns.filter((column) => row[column] !== undefined);
+  const values = insertColumns.map((column) => row[column] ?? null);
+
+  const [result] = await dbOrConnection.query(
+    `INSERT INTO md_prospects (${insertColumns.join(', ')})
+     VALUES (${insertColumns.map(() => '?').join(', ')})`,
+    values
+  );
+
+  return result.insertId;
+};
+
+export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db, sourcedByName = null) => {
+  await ensureBulkDuplicateSchema();
+
+  const stageCode = await getInitialStageCode(db);
+  const defaultSourceId = await getDirectSourceId(db);
+  const rows = Array.isArray(prospects) ? prospects : [];
+  const candidateRows = rows.filter((p) => p.email || p.phone);
+
+  if (candidateRows.length === 0) {
+    return { inserted: 0, skipped: rows.length };
+  }
+
+  const existingMatches = await getExistingProspectMatches(db, candidateRows);
+  const prospectColumns = await getProspectColumns(db);
+  const insertableColumns = [
+    'company_name',
+    'contact_name',
+    'first_name',
+    'last_name',
+    'job_title',
+    'email',
+    'phone',
+    'country_iso',
+    'dial_code',
+    'linkedin_url',
+    'twitter_url',
+    'facebook_url',
+    'instagram_url',
+    'city',
+    'state',
+    'country',
+    'website_url',
+    'industry_id',
+    'industry_size_id',
+    'stage_code',
+    'created_by',
+    'source_id',
+    'referral_name',
+    'sourced_date',
+    'sourced_by_name',
+    'preferred_lang_id',
+    'is_duplicate',
+    'duplicate_of_prospect_id'
+  ].filter((column) => prospectColumns.has(column));
+
+  const seenKeys = new Map();
+  let inserted = 0;
+  let skipped = rows.length - candidateRows.length;
+
+  for (const prospect of candidateRows) {
+    try {
+      const email = toNullableString(prospect.email)?.toLowerCase() || null;
+      const phone = toNullableString(prospect.phone);
+      const keys = [
+        email ? `email:${email}` : null,
+        phone ? `phone:${phone}` : null
+      ].filter(Boolean);
+
+      const existingDuplicateId = email && existingMatches.byEmail.has(email)
+        ? existingMatches.byEmail.get(email)
+        : phone && existingMatches.byPhone.has(phone)
+          ? existingMatches.byPhone.get(phone)
+          : null;
+      const batchDuplicateId = keys.map((key) => seenKeys.get(key)).find(Boolean) || null;
+      const duplicateOfProspectId = existingDuplicateId || batchDuplicateId;
+
+      const sourceId = prospect.source_id || defaultSourceId;
+      const row = {
+        ...filterProspectUpdates(prospect),
+        email,
+        phone,
+        source_id: sourceId,
+        stage_code: prospect.stage_code || stageCode,
+        created_by: userId || null,
+        sourced_date: prospect.sourced_date || new Date(),
+        sourced_by_name: prospect.sourced_by_name || sourcedByName || null,
+        dial_code: await resolveDialCode(prospect, db),
+        is_duplicate: duplicateOfProspectId ? 1 : 0,
+        duplicate_of_prospect_id: duplicateOfProspectId
+      };
+
+      await assertProspectReferences(row, db);
+      row.referral_name = await validateReferralName({
+        sourceId,
+        referralName: row.referral_name
+      }, db);
+
+      const prospectId = await insertProspectRow({
+        row,
+        columns: insertableColumns,
+        dbOrConnection: db
+      });
+
+      inserted += 1;
+      for (const key of keys) {
+        if (!seenKeys.has(key)) {
+          seenKeys.set(key, prospectId);
+        }
+      }
+    } catch {
+      skipped += 1;
+    }
+  }
+
+  return { inserted, skipped };
 };
 
 export const createProspect = async ({ prospect, userId }, db) => {
@@ -403,13 +585,16 @@ export const createProspect = async ({ prospect, userId }, db) => {
       referralName: newProspect.referral_name
     }, connection);
 
+    const prospectColumns = await getProspectColumns(connection);
     const columns = [
-      'company_name', 'contact_name', 'job_title', 'email', 'phone',
-      'linkedin_url', 'twitter_url', 'facebook_url', 'instagram_url',
-      'industry_id', 'industry_size_id', 'source_id', 'referral_name',
-      'sourced_date', 'sourced_by_name', 'stage_code', 'assigned_user_id',
-      'reason_id', 'notes', 'follow_up_date', 'preferred_lang_id', 'created_by'
-    ];
+      'company_name', 'contact_name', 'first_name', 'last_name', 'job_title',
+      'email', 'phone', 'country_iso', 'dial_code', 'linkedin_url',
+      'twitter_url', 'facebook_url', 'instagram_url', 'city', 'state',
+      'country', 'website_url', 'industry_id', 'industry_size_id', 'source_id',
+      'referral_name', 'sourced_date', 'sourced_by_name', 'stage_code',
+      'assigned_user_id', 'reason_id', 'notes', 'follow_up_date',
+      'preferred_lang_id', 'created_by'
+    ].filter((column) => prospectColumns.has(column));
     const values = columns.map((column) => {
       if (column === 'created_by') return userId;
       return newProspect[column] ?? null;
@@ -445,11 +630,18 @@ export const updateProspect = async ({ id, updates, userId }, db) => {
 
   try {
     const safeUpdates = filterProspectUpdates(updates);
+    const prospectColumns = await getProspectColumns(connection);
     const [existingRows] = await connection.query('SELECT * FROM md_prospects WHERE id = ? FOR UPDATE', [id]);
     if (existingRows.length === 0) {
       throw CreateError(404, 'Prospect not found');
     }
     const oldProspect = existingRows[0];
+
+    for (const column of Object.keys(safeUpdates)) {
+      if (!prospectColumns.has(column)) {
+        delete safeUpdates[column];
+      }
+    }
 
     if (safeUpdates.stage_code !== undefined || safeUpdates.reason_id !== undefined) {
       const stageReason = await validateStageReason({
@@ -467,9 +659,7 @@ export const updateProspect = async ({ id, updates, userId }, db) => {
       safeUpdates.reason_id = stageReason.reasonId;
     }
 
-    if (safeUpdates.source_id === undefined && safeUpdates.referral_name === undefined) {
-      // no-op
-    } else {
+    if (safeUpdates.source_id !== undefined || safeUpdates.referral_name !== undefined) {
       safeUpdates.referral_name = await validateReferralName({
         sourceId: safeUpdates.source_id,
         referralName: safeUpdates.referral_name,
@@ -477,6 +667,10 @@ export const updateProspect = async ({ id, updates, userId }, db) => {
       }, connection);
     }
     await assertProspectReferences(safeUpdates, connection);
+
+    if (Object.keys(safeUpdates).length === 0) {
+      throw CreateError(400, 'No supported fields to update');
+    }
 
     let query = 'UPDATE md_prospects SET ';
     const params = [];
@@ -545,90 +739,6 @@ export const moveStage = async ({ prospectId, newStage, newStageLg, reasonId, us
       to: stageReason.stageCode,
       reasonId: stageReason.reasonId
     };
-=======
-export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db) => {
-  const [firstStageRows] = await db.query(
-    'SELECT stage_code FROM stage_master WHERE language_id = ? AND sequence = 1 LIMIT 1',
-    [langId]
-  );
-  let stageCode = 1;
-  if (firstStageRows.length > 0) {
-    stageCode = firstStageRows[0].stage_code;
-  } else {
-    const [anyFirst] = await db.query('SELECT stage_code FROM stage_master WHERE sequence = 1 LIMIT 1');
-    if (anyFirst.length > 0) stageCode = anyFirst[0].stage_code;
-  }
-
-  const rows = prospects.filter(p => p.email || p.phone);
-  if (rows.length === 0) return { inserted: 0, skipped: prospects.length };
-
-  const emails = rows.map(p => p.email).filter(Boolean);
-  const phones = rows.map(p => p.phone).filter(Boolean);
-
-  let existingEmails = new Set();
-  let existingPhones = new Set();
-
-  if (emails.length > 0) {
-    const [existingEmailRows] = await db.query('SELECT email FROM md_prospects WHERE email IN (?)', [emails]);
-    existingEmailRows.forEach(r => existingEmails.add(r.email));
-  }
-  if (phones.length > 0) {
-    const [existingPhoneRows] = await db.query('SELECT phone FROM md_prospects WHERE phone IN (?)', [phones]);
-    existingPhoneRows.forEach(r => existingPhones.add(r.phone));
-  }
-
-  const validRows = rows.filter(p => !existingEmails.has(p.email) && !existingPhones.has(p.phone));
-  if (validRows.length === 0) return { inserted: 0, skipped: prospects.length };
-
-  const validValues = validRows.map(p => [
-    p.company_name || null, p.contact_name || null, p.job_title || null,
-    p.email || null, p.phone || null,
-    p.linkedin_url || null, p.twitter_url || null, p.facebook_url || null, p.instagram_url || null,
-    stageCode, userId, p.source_id || null
-  ]);
-
-  const [result] = await db.query(
-    'INSERT INTO md_prospects (company_name, contact_name, job_title, email, phone, linkedin_url, twitter_url, facebook_url, instagram_url, stage_code, created_by, source_id) VALUES ?',
-    [validValues]
-  );
-
-  return { inserted: result.affectedRows, skipped: prospects.length - result.affectedRows };
-};
-
-export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) => {
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
-  try {
-    const [rows] = await connection.query(
-      'SELECT stage_code FROM md_prospects WHERE id = ? FOR UPDATE',
-      [prospectId]
-    );
-    if (rows.length === 0) throw new Error('PROSPECT_NOT_FOUND');
-    const currentStage = rows[0].stage_code;
-
-    const [stageMeta] = await connection.query(
-      'SELECT requires_reason FROM stage_master WHERE stage_code=? AND language_id=? LIMIT 1',
-      [newStage, 'EN']
-    );
-    if (stageMeta.length > 0 && stageMeta[0].requires_reason && !reasonId) {
-      throw new Error('REASON_REQUIRED');
-    }
-
-    await connection.query(
-      'UPDATE md_prospects SET stage_code=?, reason_id=?, updated_at=NOW(), updated_by=? WHERE id=?',
-      [newStage, reasonId || null, userId, prospectId]
-    );
-    await connection.query(
-      'INSERT INTO stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
-      [prospectId, currentStage, newStage, userId, reasonId || null]
-    );
-    await connection.query(
-      'INSERT INTO td_stage_logs (prospect_id,from_stage,to_stage,moved_by,reason_id) VALUES (?,?,?,?,?)',
-      [prospectId, currentStage, newStage, userId, reasonId || null]
-    );
-    await connection.commit();
-    return { success: true, from: currentStage, to: newStage };
->>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46
   } catch (err) {
     await connection.rollback();
     throw err;
@@ -638,7 +748,6 @@ export const moveStage = async ({ prospectId, newStage, reasonId, userId }, db) 
 };
 
 export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adminId }, db) => {
-<<<<<<< HEAD
   const ids = (Array.isArray(prospectIds) ? prospectIds : [prospectIds])
     .map((id) => toNullablePositiveInteger(id, 'prospectId'))
     .filter((id) => id !== null);
@@ -650,7 +759,6 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
   const connection = await db.getConnection();
   await connection.beginTransaction();
   try {
-    const ids = Array.isArray(prospectIds) ? prospectIds : [prospectIds];
     const assignee = toRequiredPositiveInteger(toUserId, 'toUserId');
     const assignRows = ids.map((id) => [id, assignee, fromUserId || null, fromUserId || null]);
 
@@ -670,26 +778,6 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
     );
     await connection.commit();
     return { transferred: ids.length };
-=======
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
-  try {
-    await connection.query(
-      'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
-      [toUserId, prospectIds]
-    );
-    const logRows = prospectIds.map(id => [id, fromUserId, toUserId, adminId]);
-    await connection.query(
-      'INSERT INTO transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
-      [logRows]
-    );
-    await connection.query(
-      'INSERT INTO td_transfer_logs (prospect_id,from_user,to_user,transferred_by) VALUES ?',
-      [logRows]
-    );
-    await connection.commit();
-    return { transferred: prospectIds.length };
->>>>>>> 953ff5fdede7dbb6782480a08a604c5be3f1ce46
   } catch (err) {
     await connection.rollback();
     throw err;
@@ -698,79 +786,6 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
   }
 };
 
-export const bulkInsertProspects = async (
-  prospects,
-  userId,
-  lag_id = 'EN',
-  db
-) => {
-  const values = [];
-  const InvalidProspect = [];
-
-  for (const p of prospects) {
-    if (!p.email && !p.phone) {
-      InvalidProspect.push(p);
-      continue;
-    }
-
-    // Check for duplicate by email or phone
-    const [existing] = await db.query(
-      `SELECT id FROM md_prospects WHERE email = ? OR phone = ? LIMIT 1`,
-      [p.email || null, p.phone || null]
-    );
-    if (existing.length > 0) continue;
-
-    // If country_iso is provided, fetch the dial_code automatically from md_countries
-    let dial_code = p.dial_code || null;
-    if (p.country_iso && !dial_code) {
-      const [countryRows] = await db.query(
-        `SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1`,
-        [p.country_iso]
-      );
-      if (countryRows.length > 0) {
-        dial_code = countryRows[0].dial_code;
-      }
-    }
-
-    values.push([
-      p.company_name   || null,
-      p.first_name     || null,
-      p.last_name      || null,
-      p.job_title      || null,
-      p.email          || null,
-      p.phone          || null,
-      p.country_iso    || null,   
-      dial_code,                  
-      p.linkedin_url   || null,
-      p.twitter_url    || null,
-      p.facebook_url   || null,
-      p.instagram_url  || null,
-      1,                          // stage_code default = 1 (PENDING)
-      userId,
-      p.source_id      || null,
-    ]);
-  }
-
-  if (values.length === 0) {
-    return { inserted: 0, skipped: prospects.length };
-  }
-
-  const [result] = await db.query(
-    `INSERT INTO md_prospects (
-      company_name, first_name, last_name, job_title,
-      email, phone,
-      country_iso, dial_code,
-      linkedin_url, twitter_url, facebook_url, instagram_url,
-      stage_code, created_by, source_id
-    ) VALUES ?`,
-    [values]
-  );
-
-  return {
-    inserted: result.affectedRows,
-    skipped: prospects.length - result.affectedRows,
-  };
-};
 export const getCountries = async () => {
   const [rows] = await db.query(
     `SELECT
