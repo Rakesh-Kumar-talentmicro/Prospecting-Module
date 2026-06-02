@@ -123,13 +123,24 @@ export const listProspects = async (req, res, next) => {
     }
 };
 
-export const getProspect = async (req, res, next) => {
+export const getProspect = async (req, res,  next) => {
     try {
         const { id } = req.params;
-        const [rows] = await db.query('SELECT * FROM md_prospects WHERE id = ?', [id]);
+        const [rows] = await db.query(
+            `SELECT
+                p.*,
+                c.country_name,
+                c.dial_code     AS country_dial_code,
+                c.flag_svg_url,
+                c.iso_code3
+             FROM md_prospects p
+             LEFT JOIN md_countries c ON c.iso_code = p.country_iso
+             WHERE p.id = ?`,
+            [id]
+        );
         if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-        const prospect = normalizeOutputData(rows, prospectMapping)[0];
-        return res.status(200).json(prospect);
+        let prospect = normalizeOutputData(rows, prospectMapping);
+        return res.status(200).json(...prospect);
     } catch (err) {
         next(err);
     }
@@ -276,6 +287,20 @@ export const cancelActivity = async (req, res, next) => {
         const { id: prospectId, activityId } = req.params;
         const activity = await activityService.cancelActivity({ prospectId, activityId, payload: req.body }, db);
         return res.json({ success: true, data: activity });
+    } catch (err) {
+        next(err);
+    }
+
+};
+
+export const getCountries = async (req, res, next) => {
+    try {
+        const data = await prospectService.getCountries();
+        return res.status(200).json({
+            success: true,
+            count: data.length,
+            data,
+        });
     } catch (err) {
         next(err);
     }

@@ -1,3 +1,4 @@
+import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 import { STAGE_KEYS, isReasonRequiredStage } from '../constants/stages.js';
 
@@ -585,5 +586,399 @@ export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adm
     throw err;
   } finally {
     connection.release();
+  }
+};
+
+export const bulkInsertProspects = async (prospects,userId,lag_id = 'EN',db) => {
+  const values = [];
+  const InvalidProspect = [];
+
+  for (const p of prospects) {
+    if (!p.email && !p.phone) {
+      InvalidProspect.push(p);
+      continue;
+    }
+
+    // Check for duplicate by email or phone
+    const [existing] = await db.query(
+      `SELECT id FROM md_prospects WHERE email = ? OR phone = ? LIMIT 1`,
+      [p.email || null, p.phone || null]
+    );
+    if (existing.length > 0) continue;
+
+    // If country_iso is provided, fetch the dial_code automatically from md_countries
+    let dial_code = p.dial_code || null;
+    if (p.country_iso && !dial_code) {
+      const [countryRows] = await db.query(
+        `SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1`,
+        [p.country_iso]
+      );
+      if (countryRows.length > 0) {
+        dial_code = countryRows[0].dial_code;
+      }
+    }
+
+    values.push([
+      p.company_name   || null,
+      p.first_name     || null,
+      p.last_name      || null,
+      p.job_title      || null,
+      p.email          || null,
+      p.phone          || null,
+      p.country_iso    || null,   
+      dial_code,                  
+      p.linkedin_url   || null,
+      p.twitter_url    || null,
+      p.facebook_url   || null,
+      p.instagram_url  || null,
+      1,                          // stage_code default = 1 (PENDING)
+      userId,
+      p.source_id      || null,
+    ]);
+  }
+
+  if (values.length === 0) {
+    return { inserted: 0, skipped: prospects.length };
+  }
+
+  const [result] = await db.query(
+    `INSERT INTO md_prospects (
+      company_name, first_name, last_name, job_title,
+      email, phone,
+      country_iso, dial_code,
+      linkedin_url, twitter_url, facebook_url, instagram_url,
+      stage_code, created_by, source_id
+    ) VALUES ?`,
+    [values]
+  );
+
+  return {
+    inserted: result.affectedRows,
+    skipped: prospects.length - result.affectedRows,
+  };
+};
+
+export const getCountries = async () => {
+  const [rows] = await db.query(
+    `SELECT
+       id,
+       iso_code,
+       iso_code3,
+       country_name,
+       dial_code,
+       flag_svg_url
+     FROM md_countries
+     WHERE is_active = 1
+     ORDER BY country_name ASC`
+  );
+  return rows;
+};
+
+export const processProspect = async () => {
+
+  let connection;
+
+  try {
+
+    connection = await db.getConnection();
+
+    await connection.beginTransaction();
+
+    /* ---------------------------------------------
+       STEP 1: PICK BATCH
+    --------------------------------------------- */
+
+    const [tdProspectsRows] =
+      await connection.query(
+        `
+        SELECT
+          id,
+          company_name,
+          first_name,
+          last_name,
+          job_title,
+          email,
+          phone,
+          city,
+          state,
+          country,
+          industry_id,
+          industry_size_id,
+          website_url,
+          source_id,
+          referral_name,
+          preferred_lang_id,
+          bd_id,
+          duplicate_count,
+          duplicate_key
+        FROM td_prospects
+        WHERE status = 1
+        ORDER BY id
+        LIMIT ?
+        FOR UPDATE SKIP LOCKED
+        `,
+        [PROCESS_BATCH_SIZE]
+      );
+
+    if (!tdProspectsRows.length) {
+
+      await connection.commit();
+
+      return {
+        processed: 0
+      };
+    }
+
+    /* ---------------------------------------------
+       STEP 2: LOCK ROWS
+    --------------------------------------------- */
+
+    const ids = tdProspectsRows.map(r => r.id);
+
+    await connection.query(
+      `
+      UPDATE td_prospects
+      SET status = 2
+      WHERE id IN (?)
+      `,
+      [ids]
+    );
+
+    /* ---------------------------------------------
+       STEP 3: FIND EXISTING KEYS
+    --------------------------------------------- */
+
+    const duplicateKeys =
+      tdProspectsRows.map(r => r.duplicate_key);
+
+    const [existingRows] =
+      await connection.query(
+        `
+        SELECT
+          duplicate_key
+        FROM md_prospects
+        WHERE duplicate_key IN (?)
+        `,
+        [duplicateKeys]
+      );
+
+    const existingMap = new Map();
+
+    for (const row of existingRows) {
+      existingMap.set(row.duplicate_key, true);
+    }
+
+    /* ---------------------------------------------
+       STEP 4: PREPARE BULK ARRAYS
+    --------------------------------------------- */
+
+    const mdProspectsValues = [];
+
+    const assignmentValues = [];
+
+    const stageValues = [];
+
+    const duplicateValues = [];
+
+    for (const row of tdProspectsRows) {
+
+      const alreadyExists =
+        existingMap.has(row.duplicate_key);
+
+      /* -----------------------------------------
+         DUPLICATE
+      ----------------------------------------- */
+
+      if (alreadyExists) {
+
+        duplicateValues.push([
+          row.duplicate_key,
+          'DUPLICATE',
+          row.bd_id,
+          row.source_id,
+          row.duplicate_count
+        ]);
+
+        continue;
+      }
+
+      existingMap.set(row.duplicate_key, true);
+
+      /* -----------------------------------------
+         md_prospects
+      ----------------------------------------- */
+
+      mdProspectsValues.push([
+
+        row.company_name,
+        row.first_name,
+        row.last_name,
+        row.job_title,
+        row.email,
+        row.phone,
+        row.city,
+        row.state,
+        row.country,
+        row.industry_id,
+        row.industry_size_id,
+        row.website_url,
+        row.source_id,
+        row.referral_name,
+        row.preferred_lang_id,
+        row.bd_id,
+        row.duplicate_key
+      ]);
+
+      /* -----------------------------------------
+         assignment
+      ----------------------------------------- */
+
+      assignmentValues.push([
+        row.duplicate_key,
+        null,
+        row.bd_id,
+        row.source_id
+      ]);
+
+      /* -----------------------------------------
+         stage
+      ----------------------------------------- */
+
+      stageValues.push([
+        row.duplicate_key,
+        1,
+        null,
+        row.bd_id
+      ]);
+    }
+
+    /* ---------------------------------------------
+       STEP 5: INSERT md_prospects
+    --------------------------------------------- */
+
+    if (mdProspectsValues.length) {
+
+      await connection.query(
+        `
+        INSERT IGNORE INTO md_prospects (
+          company_name,
+          first_name,
+          last_name,
+          job_title,
+          email,
+          phone,
+          city,
+          state,
+          country,
+          industry_id,
+          industry_size_id,
+          website_url,
+          source_id,
+          referral_name,
+          preferred_lang_id,
+          updated_by,
+          duplicate_key
+        )
+        VALUES ?
+        `,
+        [mdProspectsValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 6: INSERT ASSIGNMENT
+    --------------------------------------------- */
+
+    if (assignmentValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_prospect_assignment (
+          duplicate_key,
+          assigned_to,
+          bd_id,
+          source_by
+        )
+        VALUES ?
+        `,
+        [assignmentValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 7: INSERT STAGE HISTORY
+    --------------------------------------------- */
+
+    if (stageValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_prospect_stage_history (
+          duplicate_key,
+          stage_code,
+          reason_id,
+          bd_id
+        )
+        VALUES ?
+        `,
+        [stageValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 8: INSERT DUPLICATES
+    --------------------------------------------- */
+
+    if (duplicateValues.length) {
+
+      await connection.query(
+        `
+        INSERT INTO td_duplicate (
+          duplicate_key,
+          stage_status,
+          bd_id,
+          source_id,
+          count
+        )
+        VALUES ?
+        `,
+        [duplicateValues]
+      );
+    }
+
+    /* ---------------------------------------------
+       STEP 9: MARK COMPLETED
+    --------------------------------------------- */
+
+    await connection.query(
+      `
+      UPDATE td_prospects
+      SET status = 3
+      WHERE id IN (?)
+      `,
+      [ids]
+    );
+
+    await connection.commit();
+
+    return {
+      processed: tdProspectsRows.length,
+      inserted: mdProspectsValues.length,
+      duplicates: duplicateValues.length
+    };
+
+  } catch (err) {
+
+    if (connection) {
+      await connection.rollback();
+    }
+
+    throw err;
+
+  } finally {
+
+    if (connection) {
+      connection.release();
+    }
   }
 };

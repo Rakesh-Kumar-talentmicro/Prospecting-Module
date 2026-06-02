@@ -4,6 +4,9 @@ import { upload, parseExcelMiddleware } from '../middleware/excelParser.js';
 
 const router = express.Router();
 
+// Get countries for dropdown
+router.get('/countries', prospectController.getCountries); 
+
 // Upload routes
 router.post('/uploadfile', upload.array('file'), parseExcelMiddleware, prospectController.uploadProspects);
 router.post('/upload', prospectController.uploadProspects);

@@ -39,4 +39,3 @@ const castType = (value, type) => {
             return value;
     }
 };
-
