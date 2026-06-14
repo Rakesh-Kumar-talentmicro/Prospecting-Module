@@ -67,7 +67,18 @@ const enqueueRenderedMessage = async ({
   };
 };
 
-// ─── Enqueue single message ───────────────────────────────────────────────────
+const renderTemplateText = (text, payload) => {
+  if (!text) {
+    return '';
+  }
+
+  return String(text).replace(/{{(.*?)}}/g, (_, key) => {
+    const normalizedKey = String(key || '').trim();
+    const value = payload?.[normalizedKey];
+    return value === undefined || value === null ? '' : String(value);
+  });
+};
+
 
 export const enqueueMessage = async ({ template_id, prospect_id, payload = {}, userId }) => {
   let connection;

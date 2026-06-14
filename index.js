@@ -5,6 +5,8 @@ import masterRoutes from './src/routes/master.routes.js';
 import notesRoutes from "./src/routes/notesRoutes.js"
 import reportRoutes from './src/routes/reportRoutes.js';
 import dashboardRoutes from "./src/routes/dashboardRoutes.js";
+import importRoutes from './src/routes/importRoutes.js';
+import importStatusRoutes from './src/routes/importStatusRoutes.js';
 import dotenv from 'dotenv';
 import errorHandler from "./src/middleware/errorHandler.js";
 
@@ -22,6 +24,8 @@ app.use('/masters', masterRoutes);
 app.use('/notes',notesRoutes);
 app.use('/reports', reportRoutes);
 app.use('/dashboard', dashboardRoutes);
+app.use('/imports', importRoutes);
+app.use('/import', importStatusRoutes);
 
 app.use(errorHandler);
 
