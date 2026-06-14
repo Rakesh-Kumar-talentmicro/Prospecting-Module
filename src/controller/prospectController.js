@@ -3,6 +3,7 @@ import * as activityService from '../service/activityService.js';
 import { normalizeInputData, normalizeOutputData } from '../utils/normalizeUtils.js';
 import { prospectMapping } from '../model/prospectModel/prospectMapping.js';
 import db from '../config/db.js';
+import { CreateError } from '../middleware/createError.js';
 
 export const uploadProspects = async (req, res, next) => {
     try {
@@ -24,6 +25,9 @@ export const createProspect = async (req, res, next) => {
         const userId = req.headers['user-id'] || 1;
         normalizedProspect.sourced_by_name = normalizedProspect.sourced_by_name || req.headers['bd-name'] || req.headers['sourced-by-name'] || null;
         const prospect = await prospectService.createProspect({ prospect: normalizedProspect, userId }, db);
+        const { assigned_user_id, stage_code, last_id = 0, limit = 50 } = req.query;
+        let query = 'SELECT * FROM md_prospects WHERE 1=1';
+        const params = [];
 
         return res.status(201).json({
             success: true,
@@ -93,18 +97,6 @@ export const listProspects = async (req, res, next) => {
             query += ' AND s.stage_code = ?';
             values.push(stage_code);
         }
-        if (source_id) {
-            query += ' AND p.source_id = ?';
-            values.push(source_id);
-        }
-        if (industry_id) {
-            query += ' AND p.industry_id = ?';
-            values.push(industry_id);
-        }
-        if (industry_size_id) {
-            query += ' AND p.industry_size_id = ?';
-            values.push(industry_size_id);
-        }
 
         if (page) {
             const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
@@ -115,9 +107,9 @@ export const listProspects = async (req, res, next) => {
             values.push(parseInt(last_id, 10) || 0, parsedLimit);
         }
 
-        const [rows] = await db.query(query, values);
-        const prospects = normalizeOutputData(rows, prospectMapping);
-        return res.status(200).json({ prospects });
+        const [rows] = await db.query(query, value);
+        let prospects = normalizeOutputData(rows, prospectMapping);
+        return res.status(200).json(prospects);
     } catch (err) {
         next(err);
     }
@@ -152,7 +144,19 @@ export const updateProspect = async (req, res, next) => {
         const updates = normalizeInputData([req.body], prospectMapping)[0];
         const userId = req.headers['user-id'] || 1;
 
-        if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No supported fields to update' });
+        if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+        let query = 'UPDATE md_prospects SET ';
+        const params = [];
+        for (const [key, value] of Object.entries(updates)) {
+            query += `${key} = ?, `;
+            params.push(value);
+        }
+        query += 'updated_at = NOW(), updated_by = ? WHERE id = ?';
+        params.push(userId, id);
+
+        if (Object.keys(updates).length === 0)
+            return res.status(400).json({ error: 'No supported fields to update' });
 
         const result = await prospectService.updateProspect({ id, updates, userId }, db);
         return res.json(result);

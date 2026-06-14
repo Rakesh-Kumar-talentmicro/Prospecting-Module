@@ -7,6 +7,10 @@ export const prospectMapping = [
     ['job_title', 'jobTitle', 'string'],
     ['email', 'emailAddress', 'string'],
     ['phone', 'phoneNumber', 'string'],
+    ['linkedin_url', 'linkedinUrl', 'string'],
+    ['twitter_url', 'twitterUrl', 'string'],
+    ['facebook_url', 'facebookUrl', 'string'],
+    ['instagram_url', 'instagramUrl', 'string'],
     ['city', 'city', 'string'],
     ['state', 'state', 'string'],
     ['country', 'country', 'string'],
@@ -24,7 +28,11 @@ export const prospectMapping = [
     ['assigned_to', 'assignedTo', 'number'],
     ['assigned_by', 'assignedBy', 'number'],
     ['assigned_user_id', 'assignedTo', 'number'],
-    ['stage_code', 'stageCode', 'string'],
+    ['stage_code', 'stageCode', 'number'],
     ['created_at', 'createdAt', 'date'],
-    ['updated_at', 'updatedAt', 'date']
+    ['follow_up_date', 'followUpDate', 'date'],
+    ['updated_at', 'updatedAt', 'date'],
+    ['created_at', 'createdAt', 'date'],
+    ['created_by', 'createdBy', 'number'],
+    ['updated_by', 'updatedBy', 'number']
 ];
