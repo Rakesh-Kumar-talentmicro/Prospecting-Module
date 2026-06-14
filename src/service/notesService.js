@@ -1,45 +1,29 @@
-import * as notesModel from "../model/notesModel/index.js";
-
-export const addNote = async (
-    prospectId,
-    noteText,
-    createdBy,
-    attachment_paths
-) => {
-
-    try {
-
-        const result = await notesModel.addNote(
-            prospectId,
-            noteText,
-            createdBy,
+// Add Note
+export const addNote = async ( prospect_id, note_text, created_by, attachment_paths = null,) => {
+  const query = `
+        INSERT INTO notes (
+            prospect_id,
+            note_text,
+            created_by,
             attachment_paths
-        );
+        )
+        VALUES (?, ?, ?, ?)
+    `;
 
-        return {
-            id: result.insertId
-        };
+  const [result] = await db.execute(query, [ prospect_id, note_text,created_by, attachment_paths,]);
+     return result;
+    };
 
-    } catch (err) {
+// Get Notes By Prospect ID
+export const getNotesByProspectId = async (prospectId) => {
+  const query = `
+        SELECT *
+        FROM notes
+        WHERE prospect_id = ?
+        ORDER BY created_at DESC
+    `;
 
-        throw err;
+  const [rows] = await db.execute(query, [prospectId]);
 
-    }
-};
-
-export const getNotes = async (prospectId) => {
-
-    try {
-
-        const rows = await notesModel.getNotesByProspectId(
-            prospectId
-        );
-
-        return rows;
-
-    } catch (err) {
-
-        throw err;
-
-    }
+  return rows;
 };

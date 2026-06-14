@@ -310,125 +310,120 @@ const validateReferralName = async ({ sourceId, referralName, currentProspectId 
   return normalizedReferralName;
 };
 
-export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db, sourcedByName = null) => {
-  const stageCode = await getInitialStageCode(db);
-  const defaultSourceId = await getDirectSourceId(db);
-
-  const rows = prospects.filter(p => p.email || p.phone);
-  if (rows.length === 0) return { inserted: 0, skipped: prospects.length };
-
-  const emails = rows.map(p => p.email).filter(Boolean);
-  const phones = rows.map(p => p.phone).filter(Boolean);
-
-  let existingEmails = new Set();
-  let existingPhones = new Set();
-
-  if (emails.length > 0) {
-    const [existingEmailRows] = await db.query('SELECT email FROM md_prospects WHERE email IN (?)', [emails]);
-    existingEmailRows.forEach(r => existingEmails.add(r.email));
-  }
-  if (phones.length > 0) {
-    const [existingPhoneRows] = await db.query('SELECT phone FROM md_prospects WHERE phone IN (?)', [phones]);
-    existingPhoneRows.forEach(r => existingPhones.add(r.phone));
-  }
-
-  const validRows = rows.filter(p => !existingEmails.has(p.email) && !existingPhones.has(p.phone));
-  if (validRows.length === 0) return { inserted: 0, skipped: prospects.length };
-
-  const validValues = [];
-  for (const p of validRows) {
-    p.source_id = p.source_id || defaultSourceId;
-    p.sourced_date = p.sourced_date || new Date();
-    p.sourced_by_name = p.sourced_by_name || sourcedByName || null;
-    await assertProspectReferences(p, db);
-    const referralName = await validateReferralName({
-      sourceId: p.source_id,
-      referralName: p.referral_name
-    }, db);
-
-    validValues.push([
-      p.company_name || null, p.contact_name || null, p.job_title || null,
-      p.email || null, p.phone || null,
-      p.linkedin_url || null, p.twitter_url || null, p.facebook_url || null, p.instagram_url || null,
-      p.industry_id || null, p.industry_size_id || null, stageCode, userId,
-      p.source_id, referralName, p.sourced_date, p.sourced_by_name
-    ]);
-  }
-
-  const [result] = await db.query(
-    `INSERT INTO md_prospects
-       (
-         company_name, contact_name, job_title, email, phone,
-         linkedin_url, twitter_url, facebook_url, instagram_url,
-         industry_id, industry_size_id, stage_code, created_by,
-         source_id, referral_name, sourced_date, sourced_by_name
-       )
-     VALUES ?`,
-    [validValues]
-  );
-
-  return { inserted: result.affectedRows, skipped: prospects.length - result.affectedRows };
-};
-
 export const createProspect = async ({ prospect, userId }, db) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
+  const CustomKey = (row) => `prospect:${normalize(row.email)}|` + `${normalizePhone(row.phone)}|` + `${normalize(row.company_name)}`;
+  // try {
+  //   const stageCode = prospect.stage_code !== undefined && prospect.stage_code !== null && prospect.stage_code !== ''
+  //     ? prospect.stage_code
+  //     : await getInitialStageCode(connection);
+  //   const sourceId = prospect.source_id || await getDirectSourceId(connection);
+  //   const sourcedDate = prospect.sourced_date || new Date();
 
+  //   const newProspect = {
+  //     ...filterProspectUpdates(prospect),
+  //     source_id: sourceId,
+  //     stage_code: stageCode,
+  //     sourced_date: sourcedDate
+  //   };
+
+  //   await assertProspectReferences(newProspect, connection);
+  //   const stageReason = await validateStageReason({
+  //     stageCode: newProspect.stage_code,
+  //     reasonId: newProspect.reason_id
+  //   }, connection);
+  //   newProspect.stage_code = stageReason.stageCode;
+  //   newProspect.reason_id = stageReason.reasonId;
+  //   newProspect.referral_name = await validateReferralName({
+  //     sourceId,
+  //     referralName: newProspect.referral_name
+  //   }, connection);
+
+  //   const columns = [
+  //     'company_name', 'contact_name', 'job_title', 'email', 'phone',
+  //     'linkedin_url', 'twitter_url', 'facebook_url', 'instagram_url',
+  //     'industry_id', 'industry_size_id', 'source_id', 'referral_name',
+  //     'sourced_date', 'sourced_by_name', 'stage_code', 'assigned_user_id',
+  //     'reason_id', 'notes', 'follow_up_date', 'preferred_lang_id', 'created_by'
+  //   ];
+  //   const values = columns.map((column) => {
+  //     if (column === 'created_by') return userId;
+  //     return newProspect[column] ?? null;
+  //   });
+
+  //   const [result] = await connection.query(
+  //     `INSERT INTO md_prospects (${columns.join(', ')})
+  //      VALUES (${columns.map(() => '?').join(', ')})`,
+  //     values
+  //   );
+
+  //   const [rows] = await connection.query('SELECT * FROM md_prospects WHERE id = ?', [result.insertId]);
+  //   await insertProspectLog({
+  //     prospectId: result.insertId,
+  //     changeType: 'CREATE',
+  //     newValues: rows[0],
+  //     changedBy: userId
+  //   }, connection);
+
+  //   await connection.commit();
+  //   return rows[0];
+  // } catch (err) {
+  //   await connection.rollback();
+  //   throw err;
+  // } finally {
+  //   connection.release();
+  // }
   try {
-    const stageCode = prospect.stage_code !== undefined && prospect.stage_code !== null && prospect.stage_code !== ''
-      ? prospect.stage_code
-      : await getInitialStageCode(connection);
-    const sourceId = prospect.source_id || await getDirectSourceId(connection);
-    const sourcedDate = prospect.sourced_date || new Date();
-
-    const newProspect = {
-      ...filterProspectUpdates(prospect),
-      source_id: sourceId,
-      stage_code: stageCode,
-      sourced_date: sourcedDate
-    };
-
-    await assertProspectReferences(newProspect, connection);
-    const stageReason = await validateStageReason({
-      stageCode: newProspect.stage_code,
-      reasonId: newProspect.reason_id
-    }, connection);
-    newProspect.stage_code = stageReason.stageCode;
-    newProspect.reason_id = stageReason.reasonId;
-    newProspect.referral_name = await validateReferralName({
-      sourceId,
-      referralName: newProspect.referral_name
-    }, connection);
-
-    const columns = [
-      'company_name', 'contact_name', 'job_title', 'email', 'phone',
-      'linkedin_url', 'twitter_url', 'facebook_url', 'instagram_url',
-      'industry_id', 'industry_size_id', 'source_id', 'referral_name',
-      'sourced_date', 'sourced_by_name', 'stage_code', 'assigned_user_id',
-      'reason_id', 'notes', 'follow_up_date', 'preferred_lang_id', 'created_by'
-    ];
-    const values = columns.map((column) => {
-      if (column === 'created_by') return userId;
-      return newProspect[column] ?? null;
-    });
-
-    const [result] = await connection.query(
-      `INSERT INTO md_prospects (${columns.join(', ')})
-       VALUES (${columns.map(() => '?').join(', ')})`,
-      values
-    );
-
-    const [rows] = await connection.query('SELECT * FROM md_prospects WHERE id = ?', [result.insertId]);
-    await insertProspectLog({
-      prospectId: result.insertId,
-      changeType: 'CREATE',
-      newValues: rows[0],
-      changedBy: userId
-    }, connection);
-
-    await connection.commit();
-    return rows[0];
-  } catch (err) {
+    const key = CustomKey(prospect);
+    const tdProspectsValues = [
+      key,
+      prospect.first_name || null,
+      prospect.last_name || null,
+      prospect.job_title || null,
+      prospect.email || null,
+      prospect.phone || null,
+      prospect.company_name || null,
+      prospect.city || null,
+      prospect.state || null,
+      prospect.country || null,
+      prospect.industry_id || null,
+      prospect.industry_size_id || null,
+      prospect.website_url || null,
+      prospect.preferred_lang_id || 'EN',
+      prospect.source_id || null,
+      prospect.referral_name || null,
+      prospect.source_bd_id || null,
+      0, 1];
+    if (tdProspectsValues.length) {
+      await db.query(
+        `INSERT INTO td_prospects (
+        prospect_key,
+        first_name,
+        last_name,
+        job_title,
+        email,
+        phone,
+        company_name,
+        city,
+        state,
+        country,
+        industry_id,
+        industry_size_id,
+        website_url,
+        preferred_lang_id,
+        source_id,
+        referral_name,
+        source_bd_id,
+        duplicate_count,
+        status
+        ) VALUES ?`,
+        [tdProspectsValues.map((v) => [...v]),]
+      );
+    }
+    return res.status(201).json({ message: "Data is recorded" });
+  }
+  catch (err) {
     await connection.rollback();
     throw err;
   } finally {
@@ -437,65 +432,78 @@ export const createProspect = async ({ prospect, userId }, db) => {
 };
 
 export const updateProspect = async ({ id, updates, userId }, db) => {
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
+  const allowedFields = [
+    'company_name',
+    'first_name',
+    'last_name',
+    'job_title',
+    'email',
+    'phone',
+    'city',
+    'state',
+    'country',
+    'country_iso',
+    'industry_id',
+    'industry_size_id',
+    'website_url',
+    'preferred_lang_id',
+    'referral_name'
+  ];
 
-  try {
-    const safeUpdates = filterProspectUpdates(updates);
-    const [existingRows] = await connection.query('SELECT * FROM md_prospects WHERE id = ? FOR UPDATE', [id]);
-    if (existingRows.length === 0) {
-      throw CreateError(404, 'Prospect not found');
-    }
-    const oldProspect = existingRows[0];
+  const updateFields = [];
+  const params = [];
 
-    if (safeUpdates.stage_code !== undefined || safeUpdates.reason_id !== undefined) {
-      const stageReason = await validateStageReason({
-        stageCode: safeUpdates.stage_code !== undefined ? safeUpdates.stage_code : oldProspect.stage_code,
-        reasonId: safeUpdates.reason_id !== undefined
-          ? safeUpdates.reason_id
-          : safeUpdates.stage_code !== undefined
-            ? null
-            : oldProspect.reason_id
-      }, connection);
-
-      if (safeUpdates.stage_code !== undefined) {
-        safeUpdates.stage_code = stageReason.stageCode;
-      }
-      safeUpdates.reason_id = stageReason.reasonId;
-    }
-
-    if (safeUpdates.source_id === undefined && safeUpdates.referral_name === undefined) {
-      // no-op
-    } else {
-      safeUpdates.referral_name = await validateReferralName({
-        sourceId: safeUpdates.source_id,
-        referralName: safeUpdates.referral_name,
-        currentProspectId: id
-      }, connection);
-    }
-    await assertProspectReferences(safeUpdates, connection);
-
-    let query = 'UPDATE md_prospects SET ';
-    const params = [];
-    for (const [key, value] of Object.entries(safeUpdates)) {
-      query += `${key} = ?, `;
+  for (const [key, value] of Object.entries(updates)) {
+    if (allowedFields.includes(key)) {
+      updateFields.push(`${key} = ?`);
       params.push(value);
     }
-    query += 'updated_at = NOW(), updated_by = ? WHERE id = ?';
-    params.push(userId, id);
+  }
 
-    await connection.query(query, params);
-    const [updatedRows] = await connection.query('SELECT * FROM md_prospects WHERE id = ?', [id]);
-    await insertProspectLog({
-      prospectId: id,
-      changeType: 'UPDATE',
-      oldValues: oldProspect,
-      newValues: updatedRows[0],
-      changedBy: userId
-    }, connection);
+  if (!updateFields.length) {
+    return {
+      success: false,
+      message: 'No valid fields supplied'
+    };
+  }
 
+  updateFields.push('updated_at = NOW()');
+  const query = `UPDATE md_prospects SET ${updateFields.join(', ')} WHERE id = ?`;
+  params.push(Number(id));
+  const [result] = await db.query(query, params);
+  if (!result.affectedRows) {
+    return { success: false, message: 'Prospect not found' };
+  }
+
+  // TODO:
+  // Insert prospect update activity into log/history table.
+  // Store:
+  // - prospect id
+  // - userId (who performed update)
+  // - changed fields
+  // - timestamp
+
+  return {
+    success: true,
+    message: 'Prospect updated successfully'
+  };
+};
+
+export const moveStage = async ({ prospectId, newStage, reasonId, bd_id }, db) => {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [prospectRows] = await connection.query(
+      `SELECT prospect_key,stage_code FROM md_prospects WHERE id = ? FOR UPDATE`, [prospectId]);
+    if (!prospectRows.length) {
+      throw CreateError(404, 'Prospect not found');
+    }
+    const prospectKey = prospectRows[0].prospect_key;
+    const currentStage = prospectRows[0].stage_code;
+    await connection.query(`UPDATE md_prospects SET stage_code = ? WHERE id = ?`, [newStage, prospectId]);
+    await connection.query(`INSERT INTO td_prospect_stage_history (prospect_key,stage_code,reason_id,bd_id) VALUES (?, ?, ?, ?)`, [prospectKey, newStage, reasonId, bd_id]);
     await connection.commit();
-    return { success: true };
+    return { success: true, from: currentStage, to: newStage, reasonId };
   } catch (err) {
     await connection.rollback();
     throw err;
@@ -504,159 +512,52 @@ export const updateProspect = async ({ id, updates, userId }, db) => {
   }
 };
 
-export const moveStage = async ({ prospectId, newStage, newStageLg, reasonId, userId }, db) => {
+export const transferProspects = async ({ prospectIds, newBdId, currentBdId }, db) => {
   const connection = await db.getConnection();
-  await connection.beginTransaction();
   try {
-    const parsedProspectId = toRequiredPositiveInteger(prospectId, 'prospectId');
-    const [rows] = await connection.query(
-      'SELECT stage_code FROM md_prospects WHERE id = ? FOR UPDATE',
-      [parsedProspectId]
+    await connection.beginTransaction();
+    const ids = Array.isArray(prospectIds) ? prospectIds.map(Number) : [Number(prospectIds)];
+    const [prospects] = await connection.query(`
+      SELECT id,prospect_key
+      FROM md_prospects
+      WHERE id IN (?)
+      FOR UPDATE
+      `,
+      [ids]
     );
-    if (rows.length === 0) throw CreateError(404, 'Prospect not found');
-    const currentStage = rows[0].stage_code;
-    const resolvedStageCode = await resolveStageCode({
-      stageCode: newStage,
-      stageLabel: newStageLg
-    }, connection);
 
-    const stageReason = await validateStageReason({
-      stageCode: resolvedStageCode,
-      reasonId
-    }, connection);
+    if (!prospects.length) {
+      throw CreateError(404, 'No prospects found');
+    }
+
+    const assignmentRows = prospects.map(prospect => [
+      prospect.prospect_key,
+      newBdId,
+      currentBdId
+    ]);
 
     await connection.query(
-      'UPDATE md_prospects SET stage_code=?, reason_id=?, updated_at=NOW(), updated_by=? WHERE id=?',
-      [stageReason.stageCode, stageReason.reasonId, userId, parsedProspectId]
-    );
-    await connection.query(
-      `INSERT INTO td_prospect_stage_history
-         (prospect_id, stage_code, reason_id, updated_by)
-       VALUES (?, ?, ?, ?)`,
-      [parsedProspectId, stageReason.stageCode, stageReason.reasonId, userId]
+      `INSERT INTO td_prospect_assignment (
+        prospect_key,
+        new_bd_id,
+        old_bd_id)
+        VALUES ? `,
+      [assignmentRows]
     );
     await connection.commit();
     return {
       success: true,
-      from: currentStage,
-      to: stageReason.stageCode,
-      reasonId: stageReason.reasonId
+      message: 'Prospects transferred successfully',
+      transferredCount: prospects.length
     };
+
   } catch (err) {
     await connection.rollback();
     throw err;
+
   } finally {
     connection.release();
   }
-};
-
-export const transferProspects = async ({ prospectIds, toUserId, fromUserId, adminId }, db) => {
-  const ids = (Array.isArray(prospectIds) ? prospectIds : [prospectIds])
-    .map((id) => toNullablePositiveInteger(id, 'prospectId'))
-    .filter((id) => id !== null);
-
-  if (ids.length === 0) {
-    throw CreateError(400, 'prospectIds is required');
-  }
-
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
-  try {
-    const ids = Array.isArray(prospectIds) ? prospectIds : [prospectIds];
-    const assignee = toRequiredPositiveInteger(toUserId, 'toUserId');
-    const assignRows = ids.map((id) => [id, assignee, fromUserId || null, fromUserId || null]);
-
-    await connection.query(
-      `INSERT INTO td_prospect_assignment (prospect_id, assigned_to, assigned_by, source_by)
-       VALUES ?
-       ON DUPLICATE KEY UPDATE
-         assigned_to = VALUES(assigned_to),
-         assigned_by = VALUES(assigned_by),
-         source_by = VALUES(source_by)`,
-      [assignRows]
-    );
-
-    await connection.query(
-      'UPDATE md_prospects SET assigned_user_id=?, updated_at=NOW() WHERE id IN (?)',
-      [assignee, ids]
-    );
-    await connection.commit();
-    return { transferred: ids.length };
-  } catch (err) {
-    await connection.rollback();
-    throw err;
-  } finally {
-    connection.release();
-  }
-};
-
-export const bulkInsertProspects = async (prospects,userId,lag_id = 'EN',db) => {
-  const values = [];
-  const InvalidProspect = [];
-
-  for (const p of prospects) {
-    if (!p.email && !p.phone) {
-      InvalidProspect.push(p);
-      continue;
-    }
-
-    // Check for duplicate by email or phone
-    const [existing] = await db.query(
-      `SELECT id FROM md_prospects WHERE email = ? OR phone = ? LIMIT 1`,
-      [p.email || null, p.phone || null]
-    );
-    if (existing.length > 0) continue;
-
-    // If country_iso is provided, fetch the dial_code automatically from md_countries
-    let dial_code = p.dial_code || null;
-    if (p.country_iso && !dial_code) {
-      const [countryRows] = await db.query(
-        `SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1`,
-        [p.country_iso]
-      );
-      if (countryRows.length > 0) {
-        dial_code = countryRows[0].dial_code;
-      }
-    }
-
-    values.push([
-      p.company_name   || null,
-      p.first_name     || null,
-      p.last_name      || null,
-      p.job_title      || null,
-      p.email          || null,
-      p.phone          || null,
-      p.country_iso    || null,   
-      dial_code,                  
-      p.linkedin_url   || null,
-      p.twitter_url    || null,
-      p.facebook_url   || null,
-      p.instagram_url  || null,
-      1,                          // stage_code default = 1 (PENDING)
-      userId,
-      p.source_id      || null,
-    ]);
-  }
-
-  if (values.length === 0) {
-    return { inserted: 0, skipped: prospects.length };
-  }
-
-  const [result] = await db.query(
-    `INSERT INTO md_prospects (
-      company_name, first_name, last_name, job_title,
-      email, phone,
-      country_iso, dial_code,
-      linkedin_url, twitter_url, facebook_url, instagram_url,
-      stage_code, created_by, source_id
-    ) VALUES ?`,
-    [values]
-  );
-
-  return {
-    inserted: result.affectedRows,
-    skipped: prospects.length - result.affectedRows,
-  };
 };
 
 export const getCountries = async () => {
@@ -676,15 +577,10 @@ export const getCountries = async () => {
 };
 
 export const processProspect = async () => {
-
   let connection;
-
   try {
-
     connection = await db.getConnection();
-
     await connection.beginTransaction();
-
     /* ---------------------------------------------
        STEP 1: PICK BATCH
     --------------------------------------------- */
@@ -711,7 +607,7 @@ export const processProspect = async () => {
           preferred_lang_id,
           bd_id,
           duplicate_count,
-          duplicate_key
+          prospect_key
         FROM td_prospects
         WHERE status = 1
         ORDER BY id
@@ -722,17 +618,11 @@ export const processProspect = async () => {
       );
 
     if (!tdProspectsRows.length) {
-
       await connection.commit();
-
       return {
         processed: 0
       };
     }
-
-    /* ---------------------------------------------
-       STEP 2: LOCK ROWS
-    --------------------------------------------- */
 
     const ids = tdProspectsRows.map(r => r.id);
 
@@ -745,55 +635,39 @@ export const processProspect = async () => {
       [ids]
     );
 
-    /* ---------------------------------------------
-       STEP 3: FIND EXISTING KEYS
-    --------------------------------------------- */
-
-    const duplicateKeys =
-      tdProspectsRows.map(r => r.duplicate_key);
-
+    const prospectKey = tdProspectsRows.map(r => r.prospect_key);
     const [existingRows] =
       await connection.query(
         `
-        SELECT
-          duplicate_key
+        SELECT prospect_key
         FROM md_prospects
-        WHERE duplicate_key IN (?)
+        WHERE prospect_key IN (?)
         `,
-        [duplicateKeys]
+        [prospectKey]
       );
 
     const existingMap = new Map();
-
     for (const row of existingRows) {
-      existingMap.set(row.duplicate_key, true);
+      existingMap.set(row.prospect_key, true);
     }
 
     /* ---------------------------------------------
        STEP 4: PREPARE BULK ARRAYS
     --------------------------------------------- */
-
     const mdProspectsValues = [];
-
     const assignmentValues = [];
-
     const stageValues = [];
-
     const duplicateValues = [];
-
     for (const row of tdProspectsRows) {
-
-      const alreadyExists =
-        existingMap.has(row.duplicate_key);
+      const alreadyExists = existingMap.has(row.prospect_key);
 
       /* -----------------------------------------
          DUPLICATE
       ----------------------------------------- */
 
       if (alreadyExists) {
-
         duplicateValues.push([
-          row.duplicate_key,
+          row.prospect_key,
           'DUPLICATE',
           row.bd_id,
           row.source_id,
@@ -803,14 +677,13 @@ export const processProspect = async () => {
         continue;
       }
 
-      existingMap.set(row.duplicate_key, true);
+      existingMap.set(row.prospect_key, true);
 
       /* -----------------------------------------
          md_prospects
       ----------------------------------------- */
 
       mdProspectsValues.push([
-
         row.company_name,
         row.first_name,
         row.last_name,
@@ -827,7 +700,7 @@ export const processProspect = async () => {
         row.referral_name,
         row.preferred_lang_id,
         row.bd_id,
-        row.duplicate_key
+        row.prospect_key
       ]);
 
       /* -----------------------------------------

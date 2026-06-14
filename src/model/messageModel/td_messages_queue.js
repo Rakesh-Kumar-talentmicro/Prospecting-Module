@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS td_messages_queue (
   status ENUM('PENDING','PROCESSING','SENT','FAILED','CANCELLED') DEFAULT 'PENDING',
   last_attempt_at TIMESTAMP NULL,
   sent_at TIMESTAMP NULL,
+  worker_id VARCHAR(100) NULL,
   isActive BOOLEAN DEFAULT TRUE,
   attempt_number INT DEFAULT 0,
   max_attempt_number INT DEFAULT 3,

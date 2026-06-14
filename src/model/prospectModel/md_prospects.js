@@ -16,18 +16,22 @@ CREATE TABLE IF NOT EXISTS md_prospects (
     industry_size_id  INT NULL,
     website_url       VARCHAR(255),
     source_id         INT NULL,
-    referral_name     VARCHAR(50) NULL,
+    referrral_name       VARCHAR(50) NULL,
     preferred_lang_id VARCHAR(10) DEFAULT 'EN',
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    bd_id             BIGINT,
-    duplicate_key     VARCHAR(255) UNIQUE,
+    source_bd_id      BIGINT,
+    stage_code        SMALLINT,
+    prospect_key      VARCHAR(255) UNIQUE,
+    country_iso       INT
     UNIQUE KEY uq_prospect (email, phone, company_name),
     INDEX idx_email (email),
     INDEX idx_phone (phone),
     INDEX idx_source (source_id) 
 );
 `;
+
+// source_bd_id in this table shows the bd person who are responsible for update and create.
 
 export async function createTable() {
     try {

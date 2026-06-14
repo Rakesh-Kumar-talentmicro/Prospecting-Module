@@ -18,58 +18,11 @@ CREATE TABLE IF NOT EXISTS notes (
 `;
 
 export async function createTable() {
-    try {
+  try {
+    await db.execute(createTableQuery);
 
-        await db.execute(createTableQuery);
-
-        console.log("notes table created successfully");
-
-    } catch (err) {
-
-        console.error("Error creating notes table", err);
-
-    }
-}
-
-// Add Note
-export const addNote = async (
-    prospect_id,
-    note_text,
-    created_by,
-    attachment_paths = null
-) => {
-
-    const query = `
-        INSERT INTO notes (
-            prospect_id,
-            note_text,
-            created_by,
-            attachment_paths
-        )
-        VALUES (?, ?, ?, ?)
-    `;
-
-    const [result] = await db.execute(query, [
-        prospect_id,
-        note_text,
-        created_by,
-        attachment_paths
-    ]);
-
-    return result;
-};
-
-// Get Notes By Prospect ID
-export const getNotesByProspectId = async (prospectId) => {
-
-    const query = `
-        SELECT *
-        FROM notes
-        WHERE prospect_id = ?
-        ORDER BY created_at DESC
-    `;
-
-    const [rows] = await db.execute(query, [prospectId]);
-
-    return rows;
+    console.log("notes table created successfully");
+  } catch (err) {
+    console.error("Error creating notes table", err);
+  }
 };

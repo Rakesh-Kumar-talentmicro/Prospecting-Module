@@ -2,154 +2,198 @@ import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 import { createPendingMessageActivity } from './activityService.js';
 
-const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
+// const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
 
-const normalizeChannel = (channel) => {
-  const normalized = String(channel || '').trim().toUpperCase();
+// const normalizeChannel = (channel) => {
+//   const normalized = String(channel || '').trim().toUpperCase();
 
-  if (!ALLOWED_CHANNELS.includes(normalized)) {
-    throw CreateError(400, 'channel must be EMAIL, SMS, or WHATSAPP');
-  }
+//   if (!ALLOWED_CHANNELS.includes(normalized)) {
+//     throw CreateError(400, 'channel must be EMAIL, SMS, or WHATSAPP');
+//   }
 
-  return normalized;
-};
+//   return normalized;
+// };
 
-const getChannelRow = async (channel, executor) => {
-  const channelName = normalizeChannel(channel);
-  const [[channelRow]] = await executor.query(
-    'SELECT id, channel_name FROM md_message_channel_enum WHERE channel_name = ? LIMIT 1',
-    [channelName]
-  );
+// const getChannelRow = async (channel, executor) => {
+//   const channelName = normalizeChannel(channel);
+//   const [[channelRow]] = await executor.query(
+//     'SELECT id, channel_name FROM md_message_channel_enum WHERE channel_name = ? LIMIT 1',
+//     [channelName]
+//   );
 
-  if (!channelRow) {
-    throw CreateError(500, `Message channel "${channelName}" not found`);
-  }
+//   if (!channelRow) {
+//     throw CreateError(500, `Message channel "${channelName}" not found`);
+//   }
 
-  return channelRow;
-};
+//   return channelRow;
+// };
 
-const getProspectRecipient = async (prospectId, channelName, executor) => {
-  const [rows] = await executor.query(
-    'SELECT id, email, phone FROM md_prospects WHERE id = ? LIMIT 1',
-    [prospectId]
-  );
+// const getProspectRecipient = async (prospectId, channelName, executor) => {
+//   const [rows] = await executor.query(
+//     'SELECT id, email, phone FROM md_prospects WHERE id = ? LIMIT 1',
+//     [prospectId]
+//   );
 
-  if (rows.length === 0) {
-    throw CreateError(404, 'Prospect not found');
-  }
+//   if (rows.length === 0) {
+//     throw CreateError(404, 'Prospect not found');
+//   }
 
-  const prospect = rows[0];
-  const toAddress = channelName === 'EMAIL' ? prospect.email : prospect.phone;
+//   const prospect = rows[0];
+//   const toAddress = channelName === 'EMAIL' ? prospect.email : prospect.phone;
 
-  if (!toAddress) {
-    throw CreateError(400, 'Recipient address not found');
-  }
+//   if (!toAddress) {
+//     throw CreateError(400, 'Recipient address not found');
+//   }
 
-  return {
-    prospectId: prospect.id,
-    toAddress
-  };
-};
+//   return {
+//     prospectId: prospect.id,
+//     toAddress
+//   };
+// };
 
-const enqueueRenderedMessage = async ({
-  channelId,
-  channelName,
-  prospectId,
-  toAddress,
-  subject,
-  body,
-  connection
+// const enqueueRenderedMessage = async ({
+//   channelId,
+//   channelName,
+//   prospectId,
+//   toAddress,
+//   subject,
+//   body,
+//   connection
+// }) => {
+//   const [[callRows]] = await connection.query(
+//     `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
+//     [
+//       channelId,
+//       prospectId,
+//       toAddress,
+//       subject,
+//       body
+//     ]
+//   );
+//   const queueId = callRows[0].queue_id;
+//   const activity = await createPendingMessageActivity({
+//     prospectId,
+//     channelName,
+//     messageQueueId: queueId
+//   }, connection);
+
+//   return {
+//     queue_id: queueId,
+//     activity_id: activity.t_id,
+//     message: 'Message queued successfully'
+//   };
+// };
+
+export const enqueueBulkMessages = async ({
+  template_id,
+  created_by,
+  messages
 }) => {
-  const [[callRows]] = await connection.query(
-    `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
-    [
-      channelId,
-      prospectId,
-      toAddress,
-      subject,
-      body
-    ]
-  );
-  const queueId = callRows[0].queue_id;
-  const activity = await createPendingMessageActivity({
-    prospectId,
-    channelName,
-    messageQueueId: queueId
-  }, connection);
 
-  return {
-    queue_id: queueId,
-    activity_id: activity.t_id,
-    message: 'Message queued successfully'
-  };
-};
+  const connection = await db.getConnection();
 
-export const enqueueBulkMessages = async ({ template_id, userId, messages }) => {
-  let connection;
   try {
-    connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const [templates] = await connection.query('SELECT * FROM md_message_templates WHERE id = ?', [template_id]);
-    if (templates.length === 0) throw CreateError(404, 'Template not found');
+    const [templates] = await connection.query(
+      `
+            SELECT *
+            FROM md_message_templates
+            WHERE id = ?
+            `,
+      [template_id]
+    );
+
+    if (!templates.length) {
+      throw CreateError(
+        404,
+        'Template not found'
+      );
+    }
+
     const template = templates[0];
 
     let requiredVars = [];
-    if (Array.isArray(template.variables)) {
-      requiredVars = template.variables;
-    } else {
-      try {
-        requiredVars = JSON.parse(template.variables || '[]');
-      } catch (e) {
-        const matches = (template.body || '').match(/{{(.*?)}}/g) || [];
-        requiredVars = [...new Set(matches.map(v => v.replace(/[{}]/g, '').trim()))];
-      }
+
+    try {
+      requiredVars = Array.isArray(template.variables)
+        ? template.variables
+        : JSON.parse(
+          template.variables || '[]'
+        );
+    } catch {
+      const matches =
+        (template.body || '')
+          .match(/{{(.*?)}}/g) || [];
+
+      requiredVars = [
+        ...new Set(
+          matches.map(variable =>
+            variable
+              .replace(/[{}]/g, '')
+              .trim()
+          )
+        )
+      ];
     }
 
-    const insertedQueueIds = [];
+    const queueIds = [];
 
     for (const item of messages) {
-      const [prospects] = await connection.query(
-      `
-        SELECT
-          id,
-          contact_name,
-          company_name,
-          email,
-          phone
-        FROM td_prospects
-        WHERE id = ?
-        AND isActive = TRUE
-        `,
-        [item.prospect_id]
-      );
 
-      if (prospects.length === 0) {
-        throw CreateError(404,`Prospect not found: ${item.prospect_id}`);
+      const [prospects] =
+        await connection.query(
+          `
+                    SELECT
+                        id,
+                        first_name,
+                        last_name,
+                        company_name,
+                        email,
+                        phone
+                    FROM td_prospects
+                    WHERE id = ?
+                      AND isActive = TRUE
+                    `,
+          [item.prospectId || item.prospect_id]
+        );
+
+      if (!prospects.length) {
+        throw CreateError(
+          404,
+          `Prospect not found: ${item.prospectId ||
+          item.prospect_id
+          }`
+        );
       }
 
       const prospect = prospects[0];
 
-      // Prospect data
       const prospectData = {
-        name: prospect.contact_name,
-        company_name: prospect.company_name,
+        name:
+          `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim(),
+        company_name:
+          prospect.company_name,
         email: prospect.email,
         phone: prospect.phone
       };
 
-      // Merge payload
-      const finalPayload = {...prospectData,...(item.payload || {})};
+      const finalPayload = {
+        ...prospectData,
+        ...(item.payload || {})
+      };
 
-      // Validate template variables
       for (const variable of requiredVars) {
         if (!(variable in finalPayload)) {
-          throw CreateError(400,`Missing variable: ${variable} for prospect ${item.prospect_id}`);
+          throw CreateError(
+            400,
+            `Missing variable: ${variable} for prospect ${prospect.id}`
+          );
         }
       }
 
-      // Determine recipient
       let toAddress = null;
+
       if (template.channel === 'EMAIL') {
         toAddress = prospect.email;
       }
@@ -162,94 +206,124 @@ export const enqueueBulkMessages = async ({ template_id, userId, messages }) => 
       }
 
       if (!toAddress) {
-        throw CreateError(400,`Recipient not found for prospect ${item.prospect_id}`);
+        throw CreateError(
+          400,
+          `Recipient address not found for prospect ${prospect.id}`
+        );
       }
 
-      // Insert queue record
-      const [result] = await connection.query(
-        `
-        INSERT INTO td_messages_queue (
-          prospect_id,
-          channel,
-          template_id,
-          to_address,
-          payload,
-          status,
-          created_by
-        ) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)
-        `,
-        [
-          prospect.id,
-          template.channel,
-          template.id,
-          toAddress,
-          JSON.stringify(finalPayload),
-          userId
-        ]
-      );
+      const [result] =
+        await connection.query(
+          `
+                    INSERT INTO td_messages_queue
+                    (
+                        prospect_id,
+                        channel,
+                        template_id,
+                        to_address,
+                        payload,
+                        status,
+                        created_by
+                    )
+                    VALUES
+                    (?, ?, ?, ?, ?, 'PENDING', ?)
+                    `,
+          [
+            prospect.id,
+            template.channel,
+            template.id,
+            toAddress,
+            JSON.stringify(finalPayload),
+            created_by
+          ]
+        );
 
-      insertedQueueIds.push(result.insertId);
+      queueIds.push(result.insertId);
     }
 
-    // Commit transaction
     await connection.commit();
 
     return {
-      total_messages: insertedQueueIds.length,
-      queue_ids: insertedQueueIds,
-      message: 'Bulk messages queued successfully',
-      activity_ids: insertedActivityIds,
-      message: 'Bulk messages queued successfully'
+      totalMessages: queueIds.length,
+      queueIds,
+      message:
+        'Bulk messages queued successfully'
     };
 
-  } catch (error) {
+  } catch (err) {
 
-    if (connection) {
-      await connection.rollback();
-    }
-    throw error;
+    await connection.rollback();
+    throw err;
+
   } finally {
-    if (connection) {
-      connection.release();
-    }
+
+    connection.release();
   }
 };
 
-export const enqueueMessage = async ({template_id,prospect_id,payload = {},userId}) => {
-  let connection;
-  try {
+export const enqueueMessage = async ({
+  template_id,
+  prospect_id,
+  payload = {},
+  created_by
+}) => {
 
-    connection = await db.getConnection();
+  const connection = await db.getConnection();
+
+  try {
     await connection.beginTransaction();
 
-    // Fetch template + prospect using JOIN
-    const [rows] = await connection.query(`SELECT
-        t.id AS template_id,
-        c.channel_name,
-        c.id AS channel,
-        t.subject,
-        t.body,
-        t.variables,
-        p.id AS prospect_id,
-        p.contact_name,
-        p.company_name,
-        p.email,
-        p.phone
-      FROM md_message_templates t INNER JOIN td_prospects p ON p.id = ?
-      WHERE t.id = ?
-      AND p.isActive = TRUE
-      `,[prospect_id, template_id]);
+    const [rows] = await connection.query(
+      `
+            SELECT
+                t.id AS template_id,
+                t.channel,
+                t.subject,
+                t.body,
+                t.variables,
 
-    if (rows.length === 0) throw CreateError(404,  'Template or Prospect not found');
+                p.id AS prospect_id,
+                CONCAT(
+                    COALESCE(p.first_name, ''),
+                    ' ',
+                    COALESCE(p.last_name, '')
+                ) AS contact_name,
+                p.company_name,
+                p.email,
+                p.phone
+
+            FROM md_message_templates t
+            INNER JOIN td_prospects p
+                ON p.id = ?
+
+            WHERE t.id = ?
+              AND p.isActive = TRUE
+            `,
+      [prospect_id, template_id]
+    );
+
+    if (!rows.length) {
+      throw CreateError(
+        404,
+        'Template or Prospect not found'
+      );
+    }
 
     const data = rows[0];
 
-    // Extract variables from template
-    const matches = data.body.match(/{{(.*?)}}/g) || [];
+    const matches =
+      data.body.match(/{{(.*?)}}/g) || [];
 
-    const requiredVars = [...new Set(matches.map(v => v.replace(/[{}]/g, '').trim()))];
+    const requiredVars = [
+      ...new Set(
+        matches.map(variable =>
+          variable
+            .replace(/[{}]/g, '')
+            .trim()
+        )
+      )
+    ];
 
-    // Prospect based variables
     const prospectData = {
       name: data.contact_name,
       company_name: data.company_name,
@@ -257,18 +331,20 @@ export const enqueueMessage = async ({template_id,prospect_id,payload = {},userI
       phone: data.phone
     };
 
-    // Merge prospect data + dynamic payload
-    const finalPayload = {...prospectData,...payload};
+    const finalPayload = {
+      ...prospectData,
+      ...payload
+    };
 
-    // Validate template variables
-    for (let variable of requiredVars) {
-
+    for (const variable of requiredVars) {
       if (!(variable in finalPayload)) {
-        throw CreateError(400,`Missing variable: ${variable}`);
+        throw CreateError(
+          400,
+          `Missing variable: ${variable}`
+        );
       }
     }
 
-    // Determine recipient automatically
     let toAddress = null;
 
     if (data.channel === 'EMAIL') {
@@ -283,59 +359,51 @@ export const enqueueMessage = async ({template_id,prospect_id,payload = {},userI
     }
 
     if (!toAddress) {
-      throw CreateError(400,'Recipient address not found');
+      throw CreateError(
+        400,
+        'Recipient address not found'
+      );
     }
 
-    // Insert message into queue
-    const [result] = await connection.query(`
-      INSERT INTO td_messages_queue (
-        prospect_id,
-        channel,
-        template_id,
-        to_address,
-        payload,
-        created_by,
-        status
-      ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
-      `,
+    const [result] = await connection.query(
+      `
+            INSERT INTO td_messages_queue
+            (
+                prospect_id,
+                channel,
+                template_id,
+                to_address,
+                payload,
+                created_by
+            )
+            VALUES
+            (?, ?, ?, ?, ?, ?)
+            `,
       [
         data.prospect_id,
         data.channel,
         data.template_id,
         toAddress,
         JSON.stringify(finalPayload),
-        userId
+        created_by
       ]
     );
-    const result = await enqueueRenderedMessage({
-      channelId: data.channel,
-      channelName: data.channel_name,
-      prospectId: data.prospect_id,
-      toAddress,
-      subject: finalSubject,
-      body: finalBody,
-      connection: executor
-    });
 
-    if (ownConnection) {
-      await ownConnection.commit();
-    }
-
-    return result;
+    await connection.commit();
 
     return {
-      queue_id: insertResult.insertId,
-      message: 'Message queued successfully',
+      queueId: result.insertId,
+      message: 'Message queued successfully'
     };
 
-  } catch (error) {
+  } catch (err) {
 
-    if (connection) {
-      await connection.rollback();
-    }
-    throw error;
+    await connection.rollback();
+    throw err;
+
   } finally {
-    if (ownConnection) ownConnection.release();
+
+    connection.release();
   }
 };
 /* 
@@ -350,126 +418,186 @@ export const enqueueMessage = async ({template_id,prospect_id,payload = {},userI
 }
 */
 
-export const queue = async ({status,channel,prospect_id,limit,offset}) => {
-  let baseQuery = `FROM td_messages_queue WHERE 1=1`;
-  let values = [];
-  // Status filter
-  if (status && status.length > 0) {
-    baseQuery += ` AND status IN (${status.map(() => '?').join(',')})`;
+export const queue = async ({ status, channel, prospect_id, limit, lastId }) => {
+  let query = `
+    SELECT
+        id,
+        channel,
+        prospect_id,
+        to_address,
+        status,
+        retry_count,
+        locked_at,
+        error_message,
+        worker_id,
+        created_at,
+        updated_at
+    FROM td_message_queue
+    WHERE 1 = 1
+    `;
+
+  const values = [];
+  if (status?.length) {
+    query += `
+          AND status IN (${status.map(() => '?').join(',')})
+      `;
     values.push(...status);
   }
 
-  // Channel filter
-  if (channel && channel.length > 0) {
-    baseQuery += ` AND channel IN (${channel.map(() => '?').join(',')})`;
+  if (channel?.length) {
+    query += `
+          AND channel IN (${channel.map(() => '?').join(',')})
+      `;
     values.push(...channel);
   }
 
-  // prospect_id filter
-  if (prospect_id && prospect_id.length > 0 ) {
-    baseQuery += ` AND prospect_id IN (${prospect_id.map(() => '?').join(',')})`;
+  if (prospect_id?.length) {
+    query += `
+          AND prospect_id IN (${prospect_id.map(() => '?').join(',')})
+      `;
     values.push(...prospect_id);
   }
 
-  // Count query
-  const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
-  const [[countResult]] = await db.query(countQuery, values);
-
-  // Data query
-  const dataQuery = `
-    SELECT 
-      id,
-      channel,
-      prospect_id,
-      template_id,
-      to_address,
-      status,
-      retry_count,
-      scheduled_at,
-      sent_at,
-      created_at
-    ${baseQuery}
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-  `;
-
-  const [rows] = await db.query(dataQuery, [...values, limit, offset]);
-
-  return {rows};
+  if (lastId > 0) {
+    query += ` AND id > ?`;
+    values.push(lastId);
+  }
+  query += `ORDER BY id ASC LIMIT ? `;
+  values.push(limit);
+  const [rows] = await db.query(query, values);
+  return { rows, nextLastId: rows.length ? rows[rows.length - 1].id : null };
 };
 
 // postTemplates - create template
-export const postTemplates = async ({ templateCode, channel, language_id, subject, body }) => {
+export const postTemplates = async ({
+  template_code,
+  channel,
+  language_id,
+  subject,
+  body
+}) => {
   try {
 
-    // Extract variables from body ({{variable}})
-    const matches = body.match(/{{(.*?)}}/g) || [];
+    const [existing] = await db.query(
+      `
+            SELECT id
+            FROM md_message_templates
+            WHERE template_code = ?
+              AND language_id = ?
+              AND channel = ?
+            LIMIT 1
+            `,
+      [
+        template_code,
+        language_id,
+        channel
+      ]
+    );
 
-    // Clean and deduplicate
-    const variables = [...new Set(
-      matches.map(v => v.replace(/[{}]/g, '').trim())
-    )];
+    if (existing.length) {
+      throw CreateError(
+        409,
+        'Template with same code, language and channel already exists'
+      );
+    }
 
-    const query = `
-      INSERT INTO md_message_templates
-      (template_code, language_id, channel, subject, body, variables)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `;
+    const matches =
+      body.match(/{{(.*?)}}/g) || [];
 
-    const values = [
-      templateCode,
-      language_id,
-      channel,
-      subject,
-      body,
-      JSON.stringify(variables)
+    const variables = [
+      ...new Set(
+        matches.map(variable =>
+          variable
+            .replace(/[{}]/g, '')
+            .trim()
+        )
+      )
     ];
-    const [result] = await db.query(query, values);
+
+    const [result] = await db.query(
+      `
+            INSERT INTO md_message_templates
+            (
+                template_code,
+                language_id,
+                channel,
+                subject,
+                body,
+                variables
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            `,
+      [
+        template_code,
+        language_id,
+        channel,
+        subject,
+        body,
+        JSON.stringify(variables)
+      ]
+    );
+
     return result;
+
   } catch (err) {
     throw err;
   }
 };
 
-export const updateTemplates = async (id, data) => {
+export const updateTemplates = async ({ id, data }) => {
   try {
-    const { subject, body } = data;
-    const [rows] = await db.query("SELECT id FROM md_message_templates WHERE id = ?", [id]);
+    const [rows] = await db.query(
+      `
+            SELECT id
+            FROM md_message_templates
+            WHERE id = ?
+            `,
+      [id]
+    );
 
-    if (rows.length === 0) {
-      return rows;
+    if (!rows.length) {
+      throw CreateError(404, 'Template not found');
     }
 
-    const matches = body.match(/{{(.*?)}}/g) || [];
+    const { subject, body } = data;
 
-    const variables = [...new Set(
-      matches.map(v => v.replace(/[{}]/g, '').trim())
-    )];
+    const matches = body?.match(/{{(.*?)}}/g) || [];
 
-    const query = `
-      UPDATE md_message_templates
-      SET 
-        subject = ?,
-        body = ?,
-        variables = ?,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `;
-
-    const values = [
-      subject || null,
-      body,
-      JSON.stringify(variables),
-      id
+    const variables = [
+      ...new Set(
+        matches.map(variable =>
+          variable.replace(/[{}]/g, '').trim()
+        )
+      )
     ];
 
-    await db.query(query, values);
+    await db.query(
+      `
+            UPDATE md_message_templates
+            SET
+                subject = ?,
+                body = ?,
+                variables = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            `,
+      [
+        subject || null,
+        body,
+        JSON.stringify(variables),
+        id
+      ]
+    );
 
-    return { success: true, message: "Template updated successfully", };
-  } catch (error) {
-    throw error;
+    return {
+      success: true,
+      message: 'Template updated successfully'
+    };
+
+  } catch (err) {
+    throw err;
   }
-}
+};
 /* 
 API for update template:
 id is passed as path params( id ->> Primary key of template table)
@@ -479,38 +607,59 @@ id is passed as path params( id ->> Primary key of template table)
 }
   */
 
-export const getTemplates = async ({ templateCode, channel, language_id, limit, offset }) => {
-  try{
-    let baseQuery = `FROM md_message_templates WHERE 1=1`;
-  let values = [];
+export const getTemplates = async ({
+  template_code,
+  channel,
+  language_id,
+  limit,
+  lastId
+}) => {
+  try {
+    let query = `
+            SELECT *
+            FROM md_message_templates
+            WHERE 1 = 1
+        `;
 
-  if (templateCode) {
-    baseQuery += ` AND template_code = ?`;
-    values.push(templateCode);
-  }
+    const values = [];
 
-  if (channel && channel.length > 0) {
-    baseQuery += ` AND channel IN (${channel.map(() => '?').join(',')})`;
-    values.push(...channel);
-  }
+    if (template_code) {
+      query += ` AND template_code = ?`;
+      values.push(template_code);
+    }
 
-  if (language_id) {
-    baseQuery += ` AND language_id = ?`;
-    values.push(language_id);
-  }
+    if (channel?.length) {
+      query += ` AND channel IN (${channel.map(() => '?').join(',')})`;
+      values.push(...channel);
+    }
 
-  // Total count query
-  const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
-  const [[countResult]] = await db.query(countQuery, values);
+    if (language_id) {
+      query += ` AND language_id = ?`;
+      values.push(language_id);
+    }
 
-  // Data query with pagination
-  const dataQuery = `SELECT * ${baseQuery}ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-  const [rows] = await db.query(dataQuery, [...values, limit, offset]);
-  return {
-    total: countResult.total,
-    templates: rows}
-  }
-  catch(err){
+    if (lastId > 0) {
+      query += ` AND id > ?`;
+      values.push(lastId);
+    }
+
+    query += `
+            ORDER BY id ASC
+            LIMIT ?
+        `;
+
+    values.push(limit);
+
+    const [rows] = await db.query(query, values);
+
+    return {
+      templates: rows,
+      nextLastId: rows.length
+        ? rows[rows.length - 1].id
+        : null
+    };
+
+  } catch (err) {
     throw err;
   }
 };

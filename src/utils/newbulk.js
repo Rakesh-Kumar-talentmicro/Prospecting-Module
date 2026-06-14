@@ -52,7 +52,7 @@ const batchingProcessing = async ({ }) => {
         if (tdProspectsValues.length) {
             await conn2.query(
             `INSERT INTO td_prospects (
-            duplicate_key,
+            prospect_key,
             first_name,
             last_name,
             job_title,
@@ -68,7 +68,7 @@ const batchingProcessing = async ({ }) => {
             preferred_lang_id,
             source_id,
             referral_name,
-            bd_id,
+            source_bd_id,
             duplicate_count,
             status
             ) VALUES ?`,

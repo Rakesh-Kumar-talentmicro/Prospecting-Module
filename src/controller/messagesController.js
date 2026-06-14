@@ -1,23 +1,36 @@
-import * as messageService from '../service/messagesService.js';
-import { CreateError } from '../middleware/createError.js';
+import * as messageService from "../service/messagesService.js";
+import { normalizeInputData, normalizeOutputData} from "../utils/normalizeUtils.js";
+import {messageMapping} from "../model/messageModel/messagemapping.js";
+import { CreateError } from "../middleware/createError.js";
 
 export const sendBulk = async (req, res, next) => {
   try {
-    const {template_id,messages} = req.body;
-    const userId = 105; 
-    if (!template_id || !userId) {
-      return next(CreateError(400, 'Missing required fields'));
+    const requestData = normalizeInputData([req.body], messageMapping)[0];
+
+    const { template_id } = requestData;
+    const { messages } = req.body;
+
+    const createdBy = Number(req.headers["user-id"]) || 1;
+
+    if (!template_id) {
+      return next(CreateError(400, "templateId is required"));
     }
 
     if (!Array.isArray(messages) || messages.length === 0) {
-      return next(CreateError(400, 'Messages must be a non-empty array'));
+      return next(CreateError(400, "messages must be a non-empty array"));
     }
-    const result = await messageService.enqueueBulkMessages({ template_id, userId, messages });
+
+    const result = await messageService.enqueueBulkMessages({
+      template_id,
+      created_by: createdBy,
+      messages,
+    });
+
     return res.status(201).json({
       success: true,
+      totalMessages: result.totalMessages,
+      queueIds: result.queueIds,
       message: result.message,
-      total_id_inserted: result.queue_ids,
-      activity_ids: result.activity_ids
     });
   } catch (err) {
     next(err);
@@ -26,27 +39,33 @@ export const sendBulk = async (req, res, next) => {
 
 export const sendSingle = async (req, res, next) => {
   try {
-    const { template_id, prospect_id, payload={} } = req.body;
-    //const userId = req.authentication['userid'] || Number(105);  // ----> Authentication part
-    const userId = 105;
-    if (!template_id || !prospect_id || !userId) {
-      return next(CreateError(400, 'Missing required fields'))
+    const messageData = normalizeInputData([req.body], messageMapping)[0];
+    const { template_id, prospect_id, payload = {} } = messageData;
+
+    const createdBy = Number(req.headers["user-id"]) || 1;
+
+    if (!template_id || !prospect_id) {
+      return next(CreateError(400, "templateId and prospectId are required"));
     }
 
     if (typeof payload !== "object" || Array.isArray(payload)) {
-      return next(CreateError(400, 'Payload must be a valid JSON object'));
+      return next(CreateError(400, "payload must be a valid JSON object"));
     }
 
-    const result = await messageService.enqueueMessage({ template_id, prospect_id, payload, userId });
-    return res.status(201).json({
-      success: true,
-      message: result.message,
-      queue_id: result.queue_id,
-      activity_id: result.activity_id
+    const result = await messageService.enqueueMessage({
+      template_id,
+      prospect_id,
+      payload,
+      created_by: createdBy,
     });
 
-  } catch (error) {
-    return next(error);
+    return res.status(201).json({
+      success: true,
+      queueId: result.queueId,
+      message: result.message,
+    });
+  } catch (err) {
+    next(err);
   }
 };
 
@@ -60,14 +79,14 @@ export const sendCustom = async (req, res, next) => {
       prospect_id,
       subject,
       body,
-      userId
+      userId,
     });
 
     return res.status(201).json({
       success: true,
       message: result.message,
       queue_id: result.queue_id,
-      activity_id: result.activity_id
+      activity_id: result.activity_id,
     });
   } catch (err) {
     next(err);
@@ -76,115 +95,115 @@ export const sendCustom = async (req, res, next) => {
 
 export const queue = async (req, res, next) => {
   try {
-    let { channel, prospect_id, page, limit } = req.query;
-    page = parseInt(page) || 1;
-    limit = parseInt(limit) || 10;
-    const offset = (page - 1) * limit;
-    // Channel normalize
-    if (channel) {
-      if (typeof channel === 'string') channel = channel.split(',');
+    const normalizedQuery = normalizeInputData([req.query], messageMapping)[0];
+    let { channel, prospect_id, status } = normalizedQuery;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const lastId = parseInt(req.query.lastId, 10) || 0;
+
+    if (channel && typeof channel === "string") {
+      channel = channel.split(",");
+    }
+
+    if (status && typeof status === "string") {
+      status = status.split(",").map(Number);
     }
 
     if (prospect_id) {
-      if (typeof prospect_id === "string") {
-        prospect_id = prospect_id.split(",");
-      }
-
-      prospect_id = prospect_id.map(id => Number(id));
+      prospect_id = String(req.query.prospectId || req.query.prospect_id)
+        .split(",")
+        .map(Number);
     }
 
-    const allowedChannels = ['EMAIL', 'SMS', 'WHATSAPP'];
-    if (channel) {
-      for (const c of channel) {
-        if (!allowedChannels.includes(c)) {
-          return next(CreateError(400, `Invalid channel: ${c}`));
-        }
-      }
-    }
-
-    // Call service
-    const result = await messageService.queue({ channel, prospect_id, limit, offset });
+    const result = await messageService.queue({
+      status,
+      channel,
+      prospect_id,
+      limit,
+      lastId,
+    });
 
     return res.status(200).json({
       success: true,
-      page,
-      limit,
-      total: result.total,
-      totalPages: Math.ceil(result.total / limit),
-      data: result.rows,
+      data: normalizeOutputData(result.rows, messageMapping),
+      nextLastId: result.nextLastId,
     });
-
   } catch (err) {
     next(err);
   }
-}
+};
 
 export const postTemplates = async (req, res, next) => {
   try {
-    const { templateCode, channel, language_id, subject, body } = req.body;
+    const templateData = normalizeInputData([req.body], messageMapping)[0];
 
-    if (!templateCode || !channel || !language_id || !subject || !body) {
-      return next(CreateError(400, 'Missing required fields'));
+    const { template_code, channel, language_id, subject, body } = templateData;
+
+    if (!template_code || !channel || !language_id || !subject || !body) {
+      return next(CreateError(400, "Missing required fields"));
     }
 
-    const result = await messageService.postTemplates({ templateCode, channel, language_id, subject, body });
+    const result = await messageService.postTemplates({
+      template_code,
+      channel,
+      language_id,
+      subject,
+      body,
+    });
 
-    if (!result) {
-      return next(CreateError(400, 'Template with same code, language and channel already exists'));
-    }
-
-    return res.status(201).json({ success: true, message: 'Template created successfully' });
-
-  } catch (error) {
-    next(CreateError(500, 'Internal Server Error'));
+    return res.status(201).json({
+      success: true,
+      templateId: result.insertId,
+      message: "Template created successfully",
+    });
+  } catch (err) {
+    next(err);
   }
-}
+};
 
 export const updateTemplates = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const data = req.body;
 
-    if (!id || !data) {
-      return next(CreateError(400, 'Missing required fields'));
-    }
-    const result = await messageService.updateTemplates({id, data});
-    if (!result) {
-      return next(CreateError(404, 'Template not found'));
-    }
+    const data = normalizeInputData([req.body], messageMapping)[0];
 
-    return res.status(200).json({ success: true, message: 'Template updated successfully' });
+    const result = await messageService.updateTemplates({
+      id: Number(id),
+      data,
+    });
 
+    return res.status(200).json(result);
   } catch (err) {
     next(err);
   }
-}
+};
 
 export const getTemplates = async (req, res, next) => {
   try {
-    let { templateCode, channel, language_id, page,limit } = req.query;
-    page = parseInt(page) || 1;
-    limit = parseInt(limit) || 30;
-    const offset = (page - 1) * limit;
-    if (channel) {
-      if (typeof channel === 'string') channel = channel.split(',');
+    const normalizedQuery = normalizeInputData([req.query], messageMapping)[0];
+
+    let { template_code, channel, language_id } = normalizedQuery;
+
+    const limit = parseInt(req.query.limit, 10) || 30;
+    const lastId = parseInt(req.query.lastId, 10) || 0;
+
+    if (channel && typeof channel === "string") {
+      channel = channel.split(",");
     }
 
-    const allowedChannels = ['EMAIL', 'SMS', 'WHATSAPP'];
-    if (channel) {
-      for (const c of channel) {
-        if (!allowedChannels.includes(c)) {
-          return next(CreateError(400, `Invalid channel: ${c}`));
-        }
-      }
-    }
+    const result = await messageService.getTemplates({
+      template_code,
+      channel,
+      language_id,
+      limit,
+      lastId,
+    });
 
-    const result = await messageService.getTemplates({ templateCode, channel, language_id, limit, offset });
-    return res.status(200).json({ success: true, count: result.total, data: result.templates });
-
+    return res.status(200).json({
+      success: true,
+      data: normalizeOutputData(result.templates, messageMapping),
+      nextLastId: result.nextLastId,
+    });
   } catch (err) {
     next(err);
   }
-}
-
-
+};

@@ -1,9 +1,9 @@
-const cron = require('node-cron');
-const db = require('../db/connection');
-const logger = require('../db/logger');
-const config = require('../config');
+import cron from "node-cron";
+import db from "../db/connection.js";
+import logger from "../db/logger.js";
+import config from "../config/index.js";
 
-const runDeadlockRescue = async () => {
+export const runDeadlockRescue = async () => {
   try {
     const [result] = await db.query(
       `UPDATE td_message_queue
@@ -13,7 +13,7 @@ const runDeadlockRescue = async () => {
        END
        WHERE status = 'PROCESSING'
        AND last_attempt_at < NOW() - INTERVAL ? MINUTE`,
-      [config.worker.deadlockRescueMinutes]
+      [config.worker.deadlockRescueMinutes],
     );
 
     if (result.affectedRows > 0) {
@@ -24,7 +24,8 @@ const runDeadlockRescue = async () => {
   }
 };
 
-cron.schedule('* * * * *', runDeadlockRescue);
-logger.info('[CRON] 🕐 Deadlock rescue started — runs every 60 seconds');
+cron.schedule("* * * * *", runDeadlockRescue);
 
-module.exports = { runDeadlockRescue };
+logger.info("[CRON] 🕐 Deadlock rescue started — runs every 60 seconds");
+
+export default runDeadlockRescue;

@@ -19,3 +19,9 @@ export async function createTable() {
     console.error("Error creating md_stages table", err);
   }
 }
+
+// pending
+// attempted
+// engaged
+// converted
+// parked
