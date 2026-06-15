@@ -151,9 +151,8 @@ export const enqueueBulkMessages = async ({
                         company_name,
                         email,
                         phone
-                    FROM td_prospects
+                    FROM md_prospects
                     WHERE id = ?
-                      AND isActive = TRUE
                     `,
           [item.prospectId || item.prospect_id]
         );
@@ -293,11 +292,10 @@ export const enqueueMessage = async ({
                 p.phone
 
             FROM md_message_templates t
-            INNER JOIN td_prospects p
+            INNER JOIN md_prospects p
                 ON p.id = ?
 
             WHERE t.id = ?
-              AND p.isActive = TRUE
             `,
       [prospect_id, template_id]
     );

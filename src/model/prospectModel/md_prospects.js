@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS md_prospects (
     industry_size_id  INT NULL,
     website_url       VARCHAR(255),
     source_id         INT NULL,
-    referrral_name       VARCHAR(50) NULL,
+    referral_name       VARCHAR(50) NULL,
     preferred_lang_id VARCHAR(10) DEFAULT 'EN',
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

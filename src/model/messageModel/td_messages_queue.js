@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS td_messages_queue (
 
   CONSTRAINT fk_queue_prospect
     FOREIGN KEY (prospect_id)
-    REFERENCES td_prospects(id)
+    REFERENCES md_prospects(id)
     ON DELETE SET NULL
 );
 `;

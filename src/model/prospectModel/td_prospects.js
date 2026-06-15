@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS td_prospects (
     preferred_lang_id VARCHAR(10) DEFAULT 'EN',
     source_bd_id      BIGINT,
     duplicate_count   INT,
-    prospect_key     VARCHAR(255),
+    prospect_key      VARCHAR(255),
     status            SMALLINT DEFAULT 1,
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
