@@ -12,30 +12,30 @@ const worker = new Worker(
     await processProspectImportJob(job.data);
   },
   {
-    connection: importRedis,
-    concurrency: Number(process.env.IMPORT_WORKER_CONCURRENCY || 1),
-    lockDuration: Number(process.env.IMPORT_WORKER_LOCK_DURATION_MS || 10 * 60 * 1000),
-    stalledInterval: Number(process.env.IMPORT_WORKER_STALLED_INTERVAL_MS || 30 * 1000)
+    connection:       importRedis,
+    concurrency:      Number(process.env.IMPORT_WORKER_CONCURRENCY        || 1),
+    lockDuration:     Number(process.env.IMPORT_WORKER_LOCK_DURATION_MS   || 10 * 60 * 1000),
+    stalledInterval:  Number(process.env.IMPORT_WORKER_STALLED_INTERVAL_MS|| 30 * 1000),
   }
 );
 
 worker.on('completed', (job) => {
-  console.log(`Prospect import completed: ${job.id}`);
+  console.log(`[import-worker] Completed: ${job.id}`);
 });
 
 worker.on('failed', (job, err) => {
-  console.error(`Prospect import failed: ${job?.id || 'unknown'}`, err);
+  console.error(`[import-worker] Failed: ${job?.id || 'unknown'}`, err.message);
 });
 
 const shutdown = async () => {
-  console.log('Closing prospect import worker...');
+  console.log('[import-worker] Shutting down...');
   await worker.close();
   await importRedis.quit().catch(() => importRedis.disconnect());
   await importProgressRedis.quit().catch(() => importProgressRedis.disconnect());
   process.exit(0);
 };
 
-process.on('SIGINT', shutdown);
+process.on('SIGINT',  shutdown);
 process.on('SIGTERM', shutdown);
 
-console.log(`Prospect import worker listening on queue ${PROSPECT_IMPORT_QUEUE_NAME}`);
+console.log(`[import-worker] Listening on queue "${PROSPECT_IMPORT_QUEUE_NAME}"`);
