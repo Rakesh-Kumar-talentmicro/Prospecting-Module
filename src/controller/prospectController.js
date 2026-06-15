@@ -4,7 +4,7 @@ import { normalizeInputData, normalizeOutputData } from '../utils/normalizeUtils
 import { prospectMapping } from '../model/prospectModel/prospectMapping.js';
 import db from '../config/db.js';
 
-export const uploadProspects = async (req, res,  next) => {
+export const uploadProspects = async (req, res, next) => {
     try {
         const { prospects } = req.body;
         const normalizedProspects = normalizeInputData(prospects, prospectMapping);
@@ -24,8 +24,8 @@ export const createProspect = async (req, res, next) => {
         const normalizedProspect = normalizeInputData(prospects, prospectMapping)[0];
         const userId = req.headers['user-id'] || 1;
         normalizedProspect.source_bd_id = normalizedProspect.source_bd_id || userId;
-        const prospect = await prospectService.createProspect({ prospect: normalizedProspect}, db);
-        return res.status(201).json({success: true,data: normalizeOutputData([prospect], prospectMapping)[0]});
+        const prospect = await prospectService.createSingleProspect({ prospect: normalizedProspect }, db);
+        return res.status(201).json({ success: true, data: normalizeOutputData([prospect], prospectMapping)[0] });
     } catch (err) {
         next(err);
     }
@@ -33,8 +33,8 @@ export const createProspect = async (req, res, next) => {
 
 export const listProspects = async (req, res, next) => {
     try {
-        const normalizedQuery = normalizeInputData([req.query],prospectMapping)[0];
-        const {bd_id,stage_code,page = 1,limit = 50} = normalizedQuery;
+        const normalizedQuery = normalizeInputData([req.query], prospectMapping)[0];
+        const { bd_id, stage_code, page = 1, limit = 50 } = normalizedQuery;
         const limits = parseInt(limit, 10);
         const offset = (parseInt(page, 10) - 1) * limits;
         let query = `SELECT
@@ -73,7 +73,7 @@ export const listProspects = async (req, res, next) => {
         query += ` ORDER BY p.created_at DESC LIMIT ? OFFSET ?`;
         values.push(limits, offset);
         const [rows] = await db.query(query, values);
-        const prospects = normalizeOutputData(rows,prospectMapping);
+        const prospects = normalizeOutputData(rows, prospectMapping);
         return res.status(200).json(prospects);
     } catch (err) {
         next(err);
@@ -96,7 +96,7 @@ export const getProspect = async (req, res, next) => {
             [id]
         );
         if (!rows.length) {
-            return res.status(404).json({error: 'Not found'});
+            return res.status(404).json({ error: 'Not found' });
         }
         const prospect = normalizeOutputData(rows, prospectMapping)[0];
         return res.status(200).json(prospect);
@@ -105,13 +105,13 @@ export const getProspect = async (req, res, next) => {
     }
 };
 
-export const updateProspect = async (req, res,  next) => {
+export const updateProspect = async (req, res, next) => {
     try {
         const { id } = req.params;
         const updates = normalizeInputData([req.body], prospectMapping)[0];
         const userId = req.headers['user-id'] || 1;
-        if (!Object.keys(updates).length){
-        return res.status(400).json({ error: 'No supported fields to update' });
+        if (!Object.keys(updates).length) {
+            return res.status(400).json({ error: 'No supported fields to update' });
         }
         const result = await prospectService.updateProspect({ id, updates, userId }, db);
         return res.json(result);
@@ -121,51 +121,61 @@ export const updateProspect = async (req, res,  next) => {
 };
 
 export const moveStage = async (req, res, next) => {
-    const prospectId = req.params.id;
-    const { newStage, reasonId } = req.body;
-    let reason = reasonId ? parseInt(reasonId) : null;
-    const bd_id = req.headers['user-id'] || 1;
-    const result = await prospectService.moveStage({
-        prospectId: parseInt(prospectId),
-        newStage: parseInt(newStage),
-        reasonId: reason,
-        bd_id
-    }, db);
-    return res.json(result);
+    try {
+        const normalizedBody = normalizeInputData([req.body],prospectMapping)[0];
+        const normalizedParams = normalizeInputData([{ prospectId: req.params.id }],prospectMapping)[0];
+        const { prospectId } = normalizedParams;
+        const {newStage,reasonId} = normalizedBody;
+        const bd_id = req.headers['user-id'] || 1;
+        const result = await prospectService.moveStage({prospectId,newStage,reasonId,bd_id},db);
+        return res.status(200).json({success: true,data: result});
+    } catch (err) {
+        next(err);
+    }
 };
 
 export const transferProspects = async (req, res, next) => {
     try {
-        const normalizedData = normalizeInputData([req.body],prospectMapping)[0];
+        const userId = Number(req.headers['user-id']) || 1;
+        const normalizedData = normalizeInputData([req.body], prospectMapping)[0];
         const { prospectIds, new_bd_id } = normalizedData;
         if (!prospectIds || !new_bd_id) {
-            return res.status(400).json({success: false,message: 'prospectIds and newBdId are required'});
+            return res.status(400).json({ success: false, message: 'prospectIds and newBdId are required' });
         }
-        const currentBdId = Number(req.headers['user-id']) || 1;
-        const result = await prospectService.transferProspects({prospectIds,newBdId: new_bd_id,currentBdId},db);
+        const result = await prospectService.transferProspects({ prospectIds, newBdId: new_bd_id,userId }, db);
         return res.status(200).json(result);
     } catch (err) {
         next(err);
     }
 };
 
-export const getProspectHistory = async (req, res,  next) => {
+export const getProspectHistory = async (
+    req,
+    res,
+    next
+) => {
     try {
-        const { id } = req.params;
-        const pId = parseInt(id, 10);
-        const [stageLogs] = await db.query(
-            'SELECT * FROM td_prospect_stage_history WHERE prospect_id = ? ORDER BY created_at DESC',
-            [pId]
-        );
-        const [transferLogs] = await db.query(
-            'SELECT * FROM td_prospect_assignment WHERE prospect_id = ? ORDER BY created_at DESC',
-            [pId]
-        );
 
-        return res.json({
-            stageLogs,
-            transferLogs
+        const normalizedParams =
+            normalizeInputData(
+                [{ prospectId: req.params.id }],
+                prospectMapping
+            )[0];
+
+        const { id: prospectId } =
+            normalizedParams;
+
+        const result =
+            await prospectService.getProspectHistory(
+                { prospectId },
+                db
+            );
+
+        return res.status(200).json({
+            success: true,
+            data: result
         });
+
     } catch (err) {
         next(err);
     }

@@ -5,7 +5,7 @@ const createTableQuery = `
     prospect_key VARCHAR(255) NOT NULL,
     stage_code INT NOT NULL,
     reason_id INT NULL,
-    bd_id BIGINT NULL,
+    assigned_by BIGINT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_stage_prospect
         FOREIGN KEY (prospect_key)

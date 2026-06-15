@@ -310,7 +310,7 @@ const validateReferralName = async ({ sourceId, referralName, currentProspectId 
   return normalizedReferralName;
 };
 
-export const createProspect = async ({ prospect, userId }, db) => {
+export const createSingleProspect = async ({ prospect, userId }, db) => {
   const connection = await db.getConnection();
   await connection.beginTransaction();
   const CustomKey = (row) => `prospect:${normalize(row.email)}|` + `${normalizePhone(row.phone)}|` + `${normalize(row.company_name)}`;
@@ -376,6 +376,7 @@ export const createProspect = async ({ prospect, userId }, db) => {
   // }
   try {
     const key = CustomKey(prospect);
+    const [row] = db.query(`Select `)
     const tdProspectsValues = [
       key,
       prospect.first_name || null,
@@ -397,7 +398,7 @@ export const createProspect = async ({ prospect, userId }, db) => {
       0, 1];
     if (tdProspectsValues.length) {
       await db.query(
-        `INSERT INTO td_prospects (
+        `INSERT INTO md_prospects (
         prospect_key,
         first_name,
         last_name,
@@ -432,61 +433,86 @@ export const createProspect = async ({ prospect, userId }, db) => {
 };
 
 export const updateProspect = async ({ id, updates, userId }, db) => {
-  const allowedFields = [
-    'company_name',
-    'first_name',
-    'last_name',
-    'job_title',
-    'email',
-    'phone',
-    'city',
-    'state',
-    'country',
-    'country_iso',
-    'industry_id',
-    'industry_size_id',
-    'website_url',
-    'preferred_lang_id',
-    'referral_name'
-  ];
-
-  const updateFields = [];
-  const params = [];
-
-  for (const [key, value] of Object.entries(updates)) {
-    if (allowedFields.includes(key)) {
-      updateFields.push(`${key} = ?`);
-      params.push(value);
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const allowedFields = [
+      'company_name',
+      'first_name',
+      'last_name',
+      'job_title',
+      'email',
+      'phone',
+      'city',
+      'state',
+      'country',
+      'country_iso',
+      'industry_id',
+      'industry_size_id',
+      'website_url',
+      'preferred_lang_id',
+      'referral_name'
+    ];
+    const [rows] = await connection.query(`SELECT * FROM md_prospects WHERE id = ? `,[id]);
+    if (!rows.length) {
+      await connection.rollback();
+      return { success: false, message: 'Prospect not found'};
     }
-  }
 
-  if (!updateFields.length) {
+    const oldRecord = rows[0];
+    const updateFields = [];
+    const params = [];
+    const oldValues = {};
+    const newValues = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (
+        allowedFields.includes(key) &&
+        oldRecord[key] !== value
+      ) {
+        updateFields.push(`${key} = ?`);
+        params.push(value);
+        oldValues[key] = oldRecord[key];
+        newValues[key] = value;
+      }
+    }
+    if (!updateFields.length) {
+      await connection.rollback();
+      return { success: false,message: 'No changes detected'};
+    }
+
+    updateFields.push('updated_at = NOW()');
+    params.push(Number(id));
+    await connection.query(`UPDATE md_prospects SET ${updateFields.join(', ')} WHERE id = ? `,params);
+    await connection.query(
+      `
+        INSERT INTO td_prospect_update_logs
+        (
+          prospect_id,
+          old_values,
+          new_values,
+          changed_by
+        )
+        VALUES (?, ?, ?, ?)
+        `,
+      [id,JSON.stringify(oldValues),JSON.stringify(newValues),userId]
+    );
+
+    await connection.commit();
+
     return {
-      success: false,
-      message: 'No valid fields supplied'
+      success: true,
+      message: 'Prospect updated successfully'
     };
+
+  } catch (err) {
+
+    await connection.rollback();
+    throw err;
+
+  } finally {
+
+    connection.release();
   }
-
-  updateFields.push('updated_at = NOW()');
-  const query = `UPDATE md_prospects SET ${updateFields.join(', ')} WHERE id = ?`;
-  params.push(Number(id));
-  const [result] = await db.query(query, params);
-  if (!result.affectedRows) {
-    return { success: false, message: 'Prospect not found' };
-  }
-
-  // TODO:
-  // Insert prospect update activity into log/history table.
-  // Store:
-  // - prospect id
-  // - userId (who performed update)
-  // - changed fields
-  // - timestamp
-
-  return {
-    success: true,
-    message: 'Prospect updated successfully'
-  };
 };
 
 export const moveStage = async ({ prospectId, newStage, reasonId, bd_id }, db) => {
@@ -501,7 +527,7 @@ export const moveStage = async ({ prospectId, newStage, reasonId, bd_id }, db) =
     const prospectKey = prospectRows[0].prospect_key;
     const currentStage = prospectRows[0].stage_code;
     await connection.query(`UPDATE md_prospects SET stage_code = ? WHERE id = ?`, [newStage, prospectId]);
-    await connection.query(`INSERT INTO td_prospect_stage_history (prospect_key,stage_code,reason_id,bd_id) VALUES (?, ?, ?, ?)`, [prospectKey, newStage, reasonId, bd_id]);
+    await connection.query(`INSERT INTO td_prospect_stage_history (prospect_key,stage_code,reason_id,assigned_by) VALUES (?, ?, ?, ?)`, [prospectKey, newStage, reasonId, bd_id]);
     await connection.commit();
     return { success: true, from: currentStage, to: newStage, reasonId };
   } catch (err) {
@@ -512,52 +538,175 @@ export const moveStage = async ({ prospectId, newStage, reasonId, bd_id }, db) =
   }
 };
 
-export const transferProspects = async ({ prospectIds, newBdId, currentBdId }, db) => {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const ids = Array.isArray(prospectIds) ? prospectIds.map(Number) : [Number(prospectIds)];
-    const [prospects] = await connection.query(`
-      SELECT id,prospect_key
-      FROM md_prospects
-      WHERE id IN (?)
-      FOR UPDATE
-      `,
-      [ids]
-    );
+export const getProspectHistory = async (
+    { prospectId },
+    db
+) => {
 
-    if (!prospects.length) {
-      throw CreateError(404, 'No prospects found');
+    const [prospectRows] =
+        await db.query(
+            `
+            SELECT
+                prospect_key
+            FROM md_prospects
+            WHERE id = ?
+            `,
+            [prospectId]
+        );
+
+    if (!prospectRows.length) {
+        throw CreateError(
+            404,
+            'Prospect not found'
+        );
     }
 
-    const assignmentRows = prospects.map(prospect => [
-      prospect.prospect_key,
-      newBdId,
-      currentBdId
-    ]);
+    const prospectKey =
+        prospectRows[0].prospect_key;
 
-    await connection.query(
-      `INSERT INTO td_prospect_assignment (
-        prospect_key,
-        new_bd_id,
-        old_bd_id)
-        VALUES ? `,
-      [assignmentRows]
-    );
-    await connection.commit();
+    const [stageLogs] =
+        await db.query(
+            `
+            SELECT *
+            FROM td_prospect_stage_history
+            WHERE prospect_key = ?
+            ORDER BY created_at DESC
+            `,
+            [prospectKey]
+        );
+
+    const [transferLogs] =
+        await db.query(
+            `
+            SELECT *
+            FROM td_prospect_assignment
+            WHERE prospect_key = ?
+            ORDER BY created_at DESC
+            `,
+            [prospectKey]
+        );
+
+    const [updateLogs] =
+        await db.query(
+            `
+            SELECT *
+            FROM td_prospect_update_logs
+            WHERE prospect_id = ?
+            ORDER BY created_at DESC
+            `,
+            [prospectId]
+        );
+
     return {
-      success: true,
-      message: 'Prospects transferred successfully',
-      transferredCount: prospects.length
+        stageLogs,
+        transferLogs,
+        updateLogs
     };
+};
 
-  } catch (err) {
-    await connection.rollback();
-    throw err;
+export const transferProspects = async (
+    {
+        prospectIds,
+        newBdId,
+        userId
+    },
+    db
+) => {
 
-  } finally {
-    connection.release();
-  }
+    const connection =
+        await db.getConnection();
+
+    try {
+
+        await connection.beginTransaction();
+
+        const ids = Array.isArray(prospectIds)
+            ? prospectIds.map(Number)
+            : [Number(prospectIds)];
+
+        const [prospects] =
+            await connection.query(
+                `
+                SELECT
+                    p.id,
+                    p.prospect_key,
+                    p.source_bd_id
+                FROM md_prospects p
+                WHERE p.id IN (?)
+                FOR UPDATE
+                `,
+                [ids]
+            );
+
+        if (!prospects.length) {
+            throw CreateError(
+                404,
+                'No prospects found'
+            );
+        }
+
+        const assignmentRows = [];
+
+        for (const prospect of prospects) {
+
+            const [latestAssignment] =
+                await connection.query(
+                    `
+                    SELECT
+                        new_bd_id
+                    FROM td_prospect_assignment
+                    WHERE prospect_key = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    `,
+                    [prospect.prospect_key]
+                );
+
+            const oldBdId =
+                latestAssignment.length
+                    ? latestAssignment[0].new_bd_id
+                    : prospect.source_bd_id;
+
+            assignmentRows.push([
+                prospect.prospect_key,
+                newBdId,
+                oldBdId,
+                userId
+            ]);
+        }
+
+        await connection.query(
+            `
+            INSERT INTO td_prospect_assignment
+            (
+                prospect_key,
+                new_bd_id,
+                old_bd_id,
+                assigned_by
+            )
+            VALUES ?
+            `,
+            [assignmentRows]
+        );
+
+        await connection.commit();
+
+        return {
+            success: true,
+            message: 'Prospects transferred successfully',
+            transferredCount:
+                prospects.length
+        };
+
+    } catch (err) {
+
+        await connection.rollback();
+        throw err;
+
+    } finally {
+
+        connection.release();
+    }
 };
 
 export const getCountries = async () => {

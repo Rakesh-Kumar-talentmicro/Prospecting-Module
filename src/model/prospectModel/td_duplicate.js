@@ -1,7 +1,7 @@
 import db from "../../config/db.js";
 const createTableQuery = `CREATE TABLE td_duplicate (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  duplicate_key varchar (255),
+  prospect_key varchar (255),
   stage_status VARCHAR(255),
   bd_id INT,
   source_id INT,

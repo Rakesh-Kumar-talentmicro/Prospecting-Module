@@ -9,7 +9,7 @@ node_modules
 
 # Logs
 *.log
-
+src/config/
 ~$prospects_bulk_import_template.xlsx
 prospects_bulk_import_template.xlsx
 docs

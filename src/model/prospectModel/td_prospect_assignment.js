@@ -5,6 +5,7 @@ const createTableQuery = `
     prospect_key VARCHAR(255) NOT NULL,
     new_bd_id BIGINT NULL,
     old_bd_id BIGINT NULL,
+    assigned_by BIGINT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (prospect_key)
