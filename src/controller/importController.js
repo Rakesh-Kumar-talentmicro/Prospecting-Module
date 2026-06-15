@@ -2,19 +2,17 @@ import * as importService from '../service/prospectImportService.js';
 
 export const uploadProspectImport = async (req, res, next) => {
   try {
-    const userId = req.headers['user-id'] || 1;
-    const sourcedByName = req.headers['bd-name'] || req.headers['sourced-by-name'] || null;
+    const uploadedBy = req.headers['user-id'] || null;
 
     const result = await importService.startProspectImport({
-      file: req.file,
+      file:       req.file,
       importUUID: req.body?.importUUID || req.body?.uuid || req.headers['import-uuid'] || null,
-      uploadedBy: userId,
-      sourcedByName
+      uploadedBy,
     });
 
     return res.status(result.existing ? 200 : 202).json({
-      uuid: result.uuid,
-      status: result.status
+      uuid:   result.uuid,
+      status: result.status,
     });
   } catch (err) {
     next(err);

@@ -14,3 +14,9 @@ node_modules
 prospects_bulk_import_template.xlsx
 docs
 /scripts/full-api-smoke-test.js
+diagnose-schema.js
+flush-stale-jobs.js
+index.js
+prospects_bulk_import_template - md_prospects.csv
+src/config/db.js
+
