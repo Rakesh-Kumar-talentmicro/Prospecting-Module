@@ -161,15 +161,10 @@ export const getProspectHistory = async (req, res,  next) => {
             'SELECT * FROM td_prospect_assignment WHERE prospect_id = ? ORDER BY created_at DESC',
             [pId]
         );
-        const [updateLogs] = await db.query(
-            'SELECT * FROM td_prospect_update_logs WHERE prospect_id = ? ORDER BY changed_at DESC',
-            [pId]
-        );
 
         return res.json({
             stageLogs,
-            transferLogs,
-            updateLogs
+            transferLogs
         });
     } catch (err) {
         next(err);
