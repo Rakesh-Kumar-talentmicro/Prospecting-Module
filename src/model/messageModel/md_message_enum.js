@@ -1,10 +1,11 @@
-import pool from "../../config/db.js";
+import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_message_status_enum(
     id SMALLINT PRIMARY KEY,
     status_name VARCHAR(15)
 );
+
 CREATE TABLE IF NOT EXISTS md_message_channel_enum(
     id SMALLINT PRIMARY KEY,
     channel_name VARCHAR (10)
@@ -19,7 +20,7 @@ INSERT INTO md_message_channel_enum(id,channel_name)
 
 export async function createTable() {
   try {
-    await pool.query(createTableQuery);
+    await db.query(createTableQuery);
     console.log('Table created successfully');
   } catch (err) {
     console.error('Error creating table', err);

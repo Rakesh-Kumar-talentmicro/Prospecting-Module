@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS md_prospects (
     source_bd_id      BIGINT,
     stage_code        SMALLINT,
     prospect_key      VARCHAR(255) UNIQUE,
-    country_iso       INT
+    country_iso       INT,
     UNIQUE KEY uq_prospect (email, phone, company_name),
     INDEX idx_email (email),
     INDEX idx_phone (phone),

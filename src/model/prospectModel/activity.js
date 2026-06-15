@@ -38,4 +38,4 @@ export async function createTable() {
     } catch (err) {
         console.error("Error creating td_activity table", err);
     }
-}
+};

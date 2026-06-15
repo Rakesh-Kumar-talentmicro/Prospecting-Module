@@ -40,4 +40,4 @@ export async function createTable() {
         console.error("Error creating td_prospects table", err);
 
     }
-}
+};
