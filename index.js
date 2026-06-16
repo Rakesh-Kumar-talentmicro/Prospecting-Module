@@ -9,19 +9,19 @@ import importRoutes from './src/routes/importRoutes.js';
 import dotenv from 'dotenv';
 import errorHandler from "./src/middleware/errorHandler.js";
 import { createAllTable } from "./src/model/tableCreate.js"
- 
+
 dotenv.config({});
 const app = express();
 app.use(express.json());
 
-// await createAllTable();             //  ----> This function will create all tables from models directly into each system 
-app.use('/messages',  messagesRoutes);
+await createAllTable();             //  ----> This function will create all tables from models directly into each system 
+app.use('/messages', messagesRoutes);
 app.use('/prospects', prospectRoutes);
-app.use('/masters',   masterRoutes);
-app.use('/notes',     notesRoutes);
-app.use('/reports',   reportRoutes);
+app.use('/masters', masterRoutes);
+app.use('/notes', notesRoutes);
+app.use('/reports', reportRoutes);
 app.use('/dashboard', dashboardRoutes);
-app.use('/imports',   importRoutes);   // POST /imports/prospects  |  GET /imports/status/:uuid
+app.use('/imports', importRoutes);   // POST /imports/prospects  |  GET /imports/status/:uuid
 
 app.use(errorHandler);
 
