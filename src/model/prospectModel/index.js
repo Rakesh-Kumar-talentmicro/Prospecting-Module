@@ -8,12 +8,13 @@ import { createTable as noteTable} from "../notesModel/td_notes.js";
 import { createTable as countryTable} from "./md_countries.js";
 
 export async function createProspectTables() {
+    await prospectTable();
     await assignTable();
     await duplicatetable();
-    await prospectTable();
     await stageHistoryTable();
     await updateLogTable();
     await activityTable();
     await noteTable();
     await countryTable();
 };
+
