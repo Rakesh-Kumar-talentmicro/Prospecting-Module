@@ -2,7 +2,7 @@ import db from "../../config/db.js";
 const createTableQuery = `
     CREATE TABLE IF NOT EXISTS td_prospect_assignment (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    prospect_id VARCHAR(255) NOT NULL,
+    prospect_id BIGINT NOT NULL,
     new_bd_id BIGINT NULL,
     old_bd_id BIGINT NULL,
     assigned_by BIGINT NULL,
