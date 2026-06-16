@@ -2,6 +2,8 @@ import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 import { createPendingMessageActivity } from './activityService.js';
 
+const activityTypeMap = {EMAIL: 1,SMS: 2,WHATSAPP: 3};
+
 export const enqueueMessage = async ({
   id,
   prospect_id,
@@ -10,7 +12,9 @@ export const enqueueMessage = async ({
 }) => {
 
   const connection = await db.getConnection();
+
   try {
+
     await connection.beginTransaction();
 
     const [rows] = await connection.query(
@@ -21,7 +25,6 @@ export const enqueueMessage = async ({
           t.subject,
           t.body,
           t.variables,
-
           p.id AS prospect_id,
           p.first_name,
           p.last_name,
@@ -34,7 +37,6 @@ export const enqueueMessage = async ({
       FROM md_message_templates t
       INNER JOIN md_prospects p
           ON p.id = ?
-
       WHERE t.id = ?
       `,
       [prospect_id, id]
@@ -65,11 +67,11 @@ export const enqueueMessage = async ({
     const prospectData = {
       first_name: data.first_name,
       last_name: data.last_name,
+      company_name: data.company_name,
       email: data.email,
       phone: data.phone,
       city: data.city,
-      country: data.country,
-      company_name: data.company_name
+      country: data.country
     };
 
     const finalPayload = {
@@ -78,6 +80,7 @@ export const enqueueMessage = async ({
     };
 
     for (const variable of requiredVars) {
+
       if (
         finalPayload[variable] === undefined ||
         finalPayload[variable] === null
@@ -99,7 +102,10 @@ export const enqueueMessage = async ({
     ) {
       toAddress = data.phone;
     } else {
-      throw CreateError(400, 'Invalid channel');
+      throw CreateError(
+        400,
+        'Invalid channel'
+      );
     }
 
     if (!toAddress) {
@@ -109,7 +115,7 @@ export const enqueueMessage = async ({
       );
     }
 
-    const [result] = await connection.query(
+    const [queueResult] = await connection.query(
       `
       INSERT INTO td_messages_queue
       (
@@ -132,25 +138,33 @@ export const enqueueMessage = async ({
         created_by
       ]
     );
-    await connection.query(`
+    await connection.query(
+      `
       INSERT INTO td_activity
       (
-        prospect_id,
-        activity_type_id,
-        message_queue_id
+          prospect_id,
+          activity_type,
+          activity_status,
+          message_queue_id,
+          created_by
       )
-      VALUES (?, ?, ?)
-    `, [
-      data.prospect_id,
-      data.channel === 'EMAIL' ? 1 :
-      data.channel === 'SMS' ? 2 : 3,
-      result.insertId
-    ]);
-    
+      VALUES
+      (?, ?, ?, ?)
+      `,
+      [
+        data.prospect_id,
+        activityTypeMap[data.channel],
+        1, // PENDING
+        queueResult.insertId,
+        created_by
+      ]
+    );
+
     await connection.commit();
 
     return {
-      queueId: result.insertId,
+      success: true,
+      queueId: queueResult.insertId,
       message: 'Message queued successfully'
     };
 
@@ -165,6 +179,7 @@ export const enqueueMessage = async ({
 
   }
 };
+
 /* 
 {
   "template_id": 2,
@@ -176,33 +191,32 @@ export const enqueueMessage = async ({
   }
 }
 */
+
 export const enqueueBulkMessages = async ({
   id,
   created_by,
   messages
 }) => {
 
-  const connection =
-    await db.getConnection();
+  const connection = await db.getConnection();
 
   try {
 
     await connection.beginTransaction();
 
-    const [templates] =
-      await connection.query(
-        `
-        SELECT
-          id,
-          channel,
-          subject,
-          body,
-          variables
-        FROM md_message_templates
-        WHERE id = ?
-        `,
-        [id]
-      );
+    const [templates] = await connection.query(
+      `
+      SELECT
+        id,
+        channel,
+        subject,
+        body,
+        variables
+      FROM md_message_templates
+      WHERE id = ?
+      `,
+      [id]
+    );
 
     if (!templates.length) {
       throw CreateError(
@@ -221,8 +235,8 @@ export const enqueueBulkMessages = async ({
         Array.isArray(template.variables)
           ? template.variables
           : JSON.parse(
-            template.variables || '[]'
-          );
+              template.variables || '[]'
+            );
 
     } catch {
 
@@ -243,17 +257,14 @@ export const enqueueBulkMessages = async ({
     }
 
     const queueIds = [];
-
     for (const item of messages) {
 
       const prospectId =
         item.prospectId ||
         item.prospect_id;
 
-      const [prospects] =
-        await connection.query(
-          `
-          SELECT
+      const [prospects] = await connection.query(
+          `SELECT
             id,
             first_name,
             last_name,
@@ -275,24 +286,16 @@ export const enqueueBulkMessages = async ({
         );
       }
 
-      const prospect =
-        prospects[0];
+      const prospect = prospects[0];
 
       const prospectData = {
-        first_name:
-          prospect.first_name,
-        last_name:
-          prospect.last_name,
-        email:
-          prospect.email,
-        phone:
-          prospect.phone,
-        city:
-          prospect.city,
-        country:
-          prospect.country,
-        company_name:
-          prospect.company_name
+        first_name: prospect.first_name,
+        last_name: prospect.last_name,
+        email: prospect.email,
+        phone: prospect.phone,
+        city: prospect.city,
+        country: prospect.country,
+        company_name: prospect.company_name
       };
 
       const finalPayload = {
@@ -303,7 +306,9 @@ export const enqueueBulkMessages = async ({
       for (const variable of requiredVars) {
 
         if (
-          finalPayload[variable] === undefined || finalPayload[variable] === null) {
+          finalPayload[variable] === undefined ||
+          finalPayload[variable] === null
+        ) {
           throw CreateError(
             400,
             `Missing variable: ${variable} for prospect ${prospect.id}`
@@ -314,10 +319,18 @@ export const enqueueBulkMessages = async ({
       let toAddress = null;
 
       if (template.channel === 'EMAIL') {
+
         toAddress = prospect.email;
-      } else if (template.channel === 'SMS' ||template.channel === 'WHATSAPP'){
+
+      } else if (
+        template.channel === 'SMS' ||
+        template.channel === 'WHATSAPP'
+      ) {
+
         toAddress = prospect.phone;
+
       } else {
+
         throw CreateError(
           400,
           `Unsupported channel: ${template.channel}`
@@ -325,14 +338,17 @@ export const enqueueBulkMessages = async ({
       }
 
       if (!toAddress) {
+
         throw CreateError(
           400,
           `Recipient address not found for prospect ${prospect.id}`
         );
       }
 
-      const [result] = await connection.query(
-          `INSERT INTO td_messages_queue
+      const [queueResult] =
+        await connection.query(
+          `
+          INSERT INTO td_messages_queue
           (
             prospect_id,
             channel,
@@ -349,35 +365,43 @@ export const enqueueBulkMessages = async ({
             template.channel,
             template.id,
             toAddress,
-            JSON.stringify(
-              finalPayload
-            ),
+            JSON.stringify(finalPayload),
             created_by
           ]
         );
 
       queueIds.push(
-        result.insertId
+        queueResult.insertId
+      );
+
+      await connection.query(
+        `
+        INSERT INTO td_activity
+        (
+          prospect_id,
+          activity_type,
+          activity_status,
+          message_queue_id,
+          created_by
+        )
+        VALUES
+        (?, ?, ?, ?)
+        `,
+        [
+          prospect.id,
+          activityTypeMap[template.channel],
+          1, // PENDING
+          queueResult.insertId,
+          created_by
+        ]
       );
     }
 
-    await db.query(`INSERT INTO td_activity(
-    prospect_id,
-    activity_type_id,
-    message_queue_id
-  )
-  VALUES (?, ?, ?)
-  `, [
-      data.prospect_id,
-      data.channel === 'EMAIL' ? 1 :
-        data.channel === 'SMS' ? 2 : 3,
-      result.insertId
-    ]);
     await connection.commit();
 
     return {
-      totalMessages:
-        queueIds.length,
+      success: true,
+      totalMessages: queueIds.length,
       queueIds,
       message:
         'Bulk messages queued successfully'
