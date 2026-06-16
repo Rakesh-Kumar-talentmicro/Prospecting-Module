@@ -519,14 +519,14 @@ export const moveStage = async ({ id, stage_code, reason_id, bd_id }, db) => {
   try {
     await connection.beginTransaction();
     const [prospectRows] = await connection.query(
-      `SELECT prospect_key,stage_code FROM md_prospects WHERE id = ? FOR UPDATE`, [id]);
+      `SELECT id,stage_code FROM md_prospects WHERE id = ? FOR UPDATE`, [id]);
     if (!prospectRows.length) {
       throw CreateError(404, 'Prospect not found');
     }
-    const prospectKey = prospectRows[0].prospect_key;
+    const prospectId = prospectRows[0].id;
     const currentStage = prospectRows[0].stage_code;
     await connection.query(`UPDATE md_prospects SET stage_code = ? WHERE id = ?`, [stage_code, id]);
-    await connection.query(`INSERT INTO td_prospect_stage_history (prospect_key,stage_code,reason_id,assigned_by) VALUES (?, ?, ?, ?)`, [prospectKey, stage_code, reason_id, bd_id]);
+    await connection.query(`INSERT INTO td_prospect_stage_history (prospect_id,stage_code,reason_id,assigned_by) VALUES (?, ?, ?, ?)`, [prospectId, stage_code, reason_id, bd_id]);
     await connection.commit();
     return { success: true, from: currentStage, to: stage_code, reason_id };
   } catch (err) {
@@ -538,24 +538,22 @@ export const moveStage = async ({ id, stage_code, reason_id, bd_id }, db) => {
 };
 
 export const getProspectHistory = async ({ id },db) => {
-    const [prospectRows] = await db.query(`SELECT prospect_key FROM md_prospects WHERE id = ? `,[id]);
+    const [prospectRows] = await db.query(`SELECT id FROM md_prospects WHERE id = ? `,[id]);
     if (!prospectRows.length) {
         throw CreateError(
             404,
             'Prospect not found'
         );
     }
-
-    const prospectKey = prospectRows[0].prospect_key;
     const [stageLogs] =
         await db.query(
             `
             SELECT *
             FROM td_prospect_stage_history
-            WHERE prospect_key = ?
+            WHERE prospect_id = ?
             ORDER BY created_at DESC
             `,
-            [prospectKey]
+            [id]
         );
 
     const [transferLogs] =
@@ -563,10 +561,10 @@ export const getProspectHistory = async ({ id },db) => {
             `
             SELECT *
             FROM td_prospect_assignment
-            WHERE prospect_key = ?
+            WHERE prospect_id = ?
             ORDER BY created_at DESC
             `,
-            [prospectKey]
+            [id]
         );
 
     const [updateLogs] =
@@ -626,7 +624,7 @@ export const transferProspects = async ({id,newBdId,userId},db) => {
                     : prospect.source_bd_id;
 
             assignmentRows.push([
-                prospect.prospect_key,
+                prospect.id,
                 newBdId,
                 oldBdId,
                 userId
@@ -637,7 +635,7 @@ export const transferProspects = async ({id,newBdId,userId},db) => {
             `
             INSERT INTO td_prospect_assignment
             (
-                prospect_key,
+                prospect_id,
                 new_bd_id,
                 old_bd_id,
                 assigned_by

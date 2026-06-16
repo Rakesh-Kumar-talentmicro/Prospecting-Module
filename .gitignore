@@ -12,6 +12,7 @@ node_modules
 src/config/
 
 storage/
+
 ~$prospects_bulk_import_template.xlsx
 prospects_bulk_import_template.xlsx
 docs
