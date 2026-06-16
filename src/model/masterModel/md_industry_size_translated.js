@@ -2,11 +2,10 @@ import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_industry_size_translated (
-  industry_size_id INT NOT NULL AUTO_INCREMENT,
+  industry_size_id INT NOT NULL,
   lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   translated_title VARCHAR(50) NOT NULL,
-  PRIMARY KEY (industry_size_id),
-  UNIQUE KEY uk_industry_size_lang (industry_size_id, lang_id),
+  PRIMARY KEY (industry_size_id, lang_id),
   CONSTRAINT fk_industry_size
     FOREIGN KEY (industry_size_id) REFERENCES md_industry_size (industry_size_id)
 ) 

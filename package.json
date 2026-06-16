@@ -8,6 +8,7 @@
     "worker": "nodemon src/worker/worker.js",
     "worker2": "nodemon src/worker/workerProspects.js",
     "worker3": "nodemon src/worker/prospectImportWorker.js",
+    "import-worker": "nodemon src/worker/prospectImportWorker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
