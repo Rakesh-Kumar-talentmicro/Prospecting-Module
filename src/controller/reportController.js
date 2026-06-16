@@ -1,52 +1,120 @@
 import * as reportService from '../service/reportService.js';
 
-const getReportQuery = (req) => ({
-  period:   req.query.period   || req.query.groupBy,
-  fromDate: req.query.fromDate || req.query.from_date,
-  toDate:   req.query.toDate   || req.query.to_date,
-  bdId:     req.query.bdId     || req.query.bd_id
-});
+// GET /report/bd-activity
+//     ?period=month
+//     &bd_id=101
+//     &fromDate=2026-01-01
+//     &toDate=2026-01-31
 
-export const getBdActivityReport = async (req, res, next) => {
-  try {
-    const data = await reportService.getBdActivityReport(getReportQuery(req));
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
-};
+export const getBdActivityReport =
+  async (req, res, next) => {
+    try {
+
+      const {
+        period = 'month',
+        bd_id,
+        fromDate,
+        toDate
+      } = req.query;
+
+      const data =
+        await reportService
+          .getBdActivityReport({
+            period,
+            bd_id,
+            fromDate,
+            toDate
+          });
+
+      return res.status(200).json({
+        success: true,
+        data
+      });
+
+    } catch (err) {
+
+      next(err);
+
+    }
+  };
 
 // {
-//   "bdId": 42,
-//   "periodLabel": "2025-Q1",
-//   "activities": 120,
-//   "attemptedProspects": 40,
-//   "convertedProspects": 10,
-//   "conversionPercentage": 25.00,
-//   "previousYear": {
-//     "periodLabel": "2024-Q1",
-//     "activities": 90,
-//     "attemptedProspects": 30,
-//     "convertedProspects": 6,
-//     "conversionPercentage": 20.00
+//   "success": true,
+//   "data": {
+//     "period": "month",
+//     "currentPeriod": [
+//       {
+//         "bd_id": 101,
+//         "activities": 520,
+//         "attempted_prospects": 160,
+//         "activities_per_prospect": 3.25,
+//         "converted": 22,
+//         "conversion_percentage": 13.75
+//       }
+//     ],
+//     "previousYearSamePeriod": [
+//       {
+//         "bd_id": 101,
+//         "activities": 410,
+//         "attempted_prospects": 145,
+//         "activities_per_prospect": 2.82,
+//         "converted": 18,
+//         "conversion_percentage": 12.41
+//       }
+//     ]
 //   }
 // }
 
-export const getProspectSourcingReport = async (req, res, next) => {
-  try {
-    const data = await reportService.getProspectSourcingReport(getReportQuery(req));
-    res.status(200).json({ success: true, data });
-  } catch (err) {
-    next(err);
-  }
+export const getProspectSourcingReport = async (
+    req,
+    res,
+    next
+) => {
+
+    try {
+
+        const {
+            period = 'month',
+            bd_id,
+            fromDate,
+            toDate
+        } = req.query;
+
+        const data =
+            await reportService
+                .getProspectSourcingReport({
+                    period,
+                    bd_id,
+                    fromDate,
+                    toDate
+                });
+
+        return res.status(200).json({
+            success: true,
+            data
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
 };
 
-// {
-//   "bdId": 42,
-//   "periodLabel": "2025-Q1",
-//   "sourcedProspects": 35,
-//   "previousYear": {
-//     "periodLabel": "2024-Q1",
-//     "sourcedProspects": 28
+// [
+//   {
+//     "bd_id": 101,
+//     "period": "2026-01",
+//     "sourced_prospects": 120
+//   },
+//   {
+//     "bd_id": 101,
+//     "period": "2026-02",
+//     "sourced_prospects": 95
+//   },
+//   {
+//     "bd_id": 102,
+//     "period": "2026-02",
+//     "sourced_prospects": 87
 //   }
-// }
+// ]

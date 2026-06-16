@@ -1,4 +1,4 @@
-import pool from "../../config/db.js";
+import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS td_message_logs (
@@ -7,13 +7,13 @@ CREATE TABLE IF NOT EXISTS td_message_logs (
   channel SMALLINT,
   status SMALLINT,
   provider VARCHAR(100),
-  provider_messageid VARCHAR(255),
+  provider_msg_id VARCHAR(255),
   to_address VARCHAR(500) NOT NULL,
   response_body TEXT,
   error_message TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  FOREIGN KEY (queue_id) REFERENCES td_message_queue(id),
+  FOREIGN KEY (queue_id) REFERENCES td_messages_queue(id),
   FOREIGN KEY (status) REFERENCES md_message_status_enum(id),
   FOREIGN KEY (channel) REFERENCES md_message_channel_enum(id),
 
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS td_message_logs (
 
 export async function createTable() {
   try {
-    await pool.query(createTableQuery);
+    await db.query(createTableQuery);
     console.log('Table created successfully');
   } catch (err) {
     console.error('Error creating table', err);

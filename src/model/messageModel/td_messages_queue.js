@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS td_messages_queue (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   prospect_id BIGINT,
   channel ENUM('EMAIL', 'SMS', 'WHATSAPP') NOT NULL,
-  template_id BIGINT NOT NULL,
+  template_id BIGINT,
   to_address VARCHAR(500) NOT NULL,
   payload JSON NOT NULL,
   status ENUM('PENDING','PROCESSING','SENT','FAILED','CANCELLED') DEFAULT 'PENDING',
@@ -19,13 +19,11 @@ CREATE TABLE IF NOT EXISTS td_messages_queue (
   created_by BIGINT NOT NULL,
   CONSTRAINT fk_template
     FOREIGN KEY (template_id)
-    REFERENCES md_message_templates(id)
-    ON DELETE SET NULL,
+    REFERENCES md_message_templates(id),
 
   CONSTRAINT fk_queue_prospect
     FOREIGN KEY (prospect_id)
     REFERENCES md_prospects(id)
-    ON DELETE SET NULL
 );
 `;
 

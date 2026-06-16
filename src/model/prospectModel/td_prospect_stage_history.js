@@ -2,16 +2,16 @@ import db from "../../config/db.js";
 const createTableQuery = `
     CREATE TABLE IF NOT EXISTS td_prospect_stage_history (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    prospect_key VARCHAR(255) NOT NULL,
+    prospect_id BIGINT NOT NULL,
     stage_code INT NOT NULL,
     reason_id INT NULL,
     assigned_by BIGINT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_stage_prospect
-        FOREIGN KEY (prospect_key)
-        REFERENCES md_prospects(prospect_key),
+        FOREIGN KEY (prospect_id)
+        REFERENCES md_prospects(id),
 
-    INDEX idx_duplicate (prospect_key),
+    INDEX idx_duplicate (prospect_id),
     INDEX idx_stage (stage_code),
     INDEX idx_created_at (created_at)
 );

@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS md_industry_size_translated (
   UNIQUE KEY uk_industry_size_lang (industry_size_id, lang_id),
   CONSTRAINT fk_industry_size
     FOREIGN KEY (industry_size_id) REFERENCES md_industry_size (industry_size_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) 
 `;
 
 export async function createTable() {

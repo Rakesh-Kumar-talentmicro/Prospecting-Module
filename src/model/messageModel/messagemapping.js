@@ -1,6 +1,6 @@
 export const messageMapping = [
     ['id', 'templateId', 'number'],
-    ['id', 'queueId', 'number'],
+    ['q_id', 'queueId', 'number'],
     ['template_code', 'templateCode', 'string'],
     ['language_id', 'languageId', 'string'],
     ['channel', 'channel', 'number'],

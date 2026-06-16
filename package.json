@@ -7,8 +7,7 @@
     "start": "nodemon index.js",
     "worker": "nodemon src/worker/worker.js",
     "worker2": "nodemon src/worker/workerProspects.js",
-    "import-worker": "node src/worker/prospectImportWorker.js",
-    "import-worker:dev": "nodemon src/worker/prospectImportWorker.js",
+    "worker3": "nodemon src/worker/prospectImportWorker.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -21,6 +20,7 @@
     "axios": "^1.15.2",
     "bullmq": "^5.78.1",
     "cron": "^4.4.0",
+    "crypto": "^1.0.1",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",

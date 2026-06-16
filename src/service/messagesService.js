@@ -2,90 +2,198 @@ import db from '../config/db.js';
 import { CreateError } from '../middleware/createError.js';
 import { createPendingMessageActivity } from './activityService.js';
 
-// const ALLOWED_CHANNELS = ['EMAIL', 'SMS', 'WHATSAPP'];
+const activityTypeMap = {EMAIL: 1,SMS: 2,WHATSAPP: 3};
 
-// const normalizeChannel = (channel) => {
-//   const normalized = String(channel || '').trim().toUpperCase();
+export const enqueueMessage = async ({
+  id,
+  prospect_id,
+  payload = {},
+  created_by
+}) => {
 
-//   if (!ALLOWED_CHANNELS.includes(normalized)) {
-//     throw CreateError(400, 'channel must be EMAIL, SMS, or WHATSAPP');
-//   }
+  const connection = await db.getConnection();
 
-//   return normalized;
-// };
+  try {
 
-// const getChannelRow = async (channel, executor) => {
-//   const channelName = normalizeChannel(channel);
-//   const [[channelRow]] = await executor.query(
-//     'SELECT id, channel_name FROM md_message_channel_enum WHERE channel_name = ? LIMIT 1',
-//     [channelName]
-//   );
+    await connection.beginTransaction();
 
-//   if (!channelRow) {
-//     throw CreateError(500, `Message channel "${channelName}" not found`);
-//   }
+    const [rows] = await connection.query(
+      `
+      SELECT
+          t.id AS template_id,
+          t.channel,
+          t.subject,
+          t.body,
+          t.variables,
+          p.id AS prospect_id,
+          p.first_name,
+          p.last_name,
+          p.company_name,
+          p.email,
+          p.phone,
+          p.city,
+          p.country
 
-//   return channelRow;
-// };
+      FROM md_message_templates t
+      INNER JOIN md_prospects p
+          ON p.id = ?
+      WHERE t.id = ?
+      `,
+      [prospect_id, id]
+    );
 
-// const getProspectRecipient = async (prospectId, channelName, executor) => {
-//   const [rows] = await executor.query(
-//     'SELECT id, email, phone FROM md_prospects WHERE id = ? LIMIT 1',
-//     [prospectId]
-//   );
+    if (!rows.length) {
+      throw CreateError(
+        404,
+        'Template or Prospect not found'
+      );
+    }
 
-//   if (rows.length === 0) {
-//     throw CreateError(404, 'Prospect not found');
-//   }
+    const data = rows[0];
 
-//   const prospect = rows[0];
-//   const toAddress = channelName === 'EMAIL' ? prospect.email : prospect.phone;
+    const matches =
+      data.body?.match(/{{(.*?)}}/g) || [];
 
-//   if (!toAddress) {
-//     throw CreateError(400, 'Recipient address not found');
-//   }
+    const requiredVars = [
+      ...new Set(
+        matches.map(variable =>
+          variable
+            .replace(/[{}]/g, '')
+            .trim()
+        )
+      )
+    ];
 
-//   return {
-//     prospectId: prospect.id,
-//     toAddress
-//   };
-// };
+    const prospectData = {
+      first_name: data.first_name,
+      last_name: data.last_name,
+      company_name: data.company_name,
+      email: data.email,
+      phone: data.phone,
+      city: data.city,
+      country: data.country
+    };
 
-// const enqueueRenderedMessage = async ({
-//   channelId,
-//   channelName,
-//   prospectId,
-//   toAddress,
-//   subject,
-//   body,
-//   connection
-// }) => {
-//   const [[callRows]] = await connection.query(
-//     `CALL sp_enqueue_message(?, ?, ?, ?, ?)`,
-//     [
-//       channelId,
-//       prospectId,
-//       toAddress,
-//       subject,
-//       body
-//     ]
-//   );
-//   const queueId = callRows[0].queue_id;
-//   const activity = await createPendingMessageActivity({
-//     prospectId,
-//     channelName,
-//     messageQueueId: queueId
-//   }, connection);
+    const finalPayload = {
+      ...prospectData,
+      ...payload
+    };
 
-//   return {
-//     queue_id: queueId,
-//     activity_id: activity.t_id,
-//     message: 'Message queued successfully'
-//   };
-// };
+    for (const variable of requiredVars) {
+
+      if (
+        finalPayload[variable] === undefined ||
+        finalPayload[variable] === null
+      ) {
+        throw CreateError(
+          400,
+          `Missing variable: ${variable}`
+        );
+      }
+    }
+
+    let toAddress = null;
+
+    if (data.channel === 'EMAIL') {
+      toAddress = data.email;
+    } else if (
+      data.channel === 'SMS' ||
+      data.channel === 'WHATSAPP'
+    ) {
+      toAddress = data.phone;
+    } else {
+      throw CreateError(
+        400,
+        'Invalid channel'
+      );
+    }
+
+    if (!toAddress) {
+      throw CreateError(
+        400,
+        'Recipient address not found'
+      );
+    }
+
+    const [queueResult] = await connection.query(
+      `
+      INSERT INTO td_messages_queue
+      (
+          prospect_id,
+          channel,
+          template_id,
+          to_address,
+          payload,
+          created_by
+      )
+      VALUES
+      (?, ?, ?, ?, ?, ?)
+      `,
+      [
+        data.prospect_id,
+        data.channel,
+        data.template_id,
+        toAddress,
+        JSON.stringify(finalPayload),
+        created_by
+      ]
+    );
+    await connection.query(
+      `
+      INSERT INTO td_activity
+      (
+          prospect_id,
+          activity_type,
+          activity_status,
+          message_queue_id,
+          created_by
+      )
+      VALUES
+      (?, ?, ?, ?)
+      `,
+      [
+        data.prospect_id,
+        activityTypeMap[data.channel],
+        1, // PENDING
+        queueResult.insertId,
+        created_by
+      ]
+    );
+
+    await connection.commit();
+
+    return {
+      success: true,
+      queueId: queueResult.insertId,
+      message: 'Message queued successfully'
+    };
+
+  } catch (err) {
+
+    await connection.rollback();
+    throw err;
+
+  } finally {
+
+    connection.release();
+
+  }
+};
+
+/* 
+{
+  "template_id": 2,
+  "prospect_id": 101,
+  "userId": 10,
+  "payload": {
+    "meeting_date": "2026-05-02",
+    "meeting_link": "https://meet.google.com/abc"
+  }
+}
+*/
 
 export const enqueueBulkMessages = async ({
-  template_id,
+  id,
   created_by,
   messages
 }) => {
@@ -93,15 +201,21 @@ export const enqueueBulkMessages = async ({
   const connection = await db.getConnection();
 
   try {
+
     await connection.beginTransaction();
 
     const [templates] = await connection.query(
       `
-            SELECT *
-            FROM md_message_templates
-            WHERE id = ?
-            `,
-      [template_id]
+      SELECT
+        id,
+        channel,
+        subject,
+        body,
+        variables
+      FROM md_message_templates
+      WHERE id = ?
+      `,
+      [id]
     );
 
     if (!templates.length) {
@@ -116,15 +230,20 @@ export const enqueueBulkMessages = async ({
     let requiredVars = [];
 
     try {
-      requiredVars = Array.isArray(template.variables)
-        ? template.variables
-        : JSON.parse(
-          template.variables || '[]'
-        );
+
+      requiredVars =
+        Array.isArray(template.variables)
+          ? template.variables
+          : JSON.parse(
+              template.variables || '[]'
+            );
+
     } catch {
+
       const matches =
-        (template.body || '')
-          .match(/{{(.*?)}}/g) || [];
+        template.body?.match(
+          /{{(.*?)}}/g
+        ) || [];
 
       requiredVars = [
         ...new Set(
@@ -138,43 +257,45 @@ export const enqueueBulkMessages = async ({
     }
 
     const queueIds = [];
-
     for (const item of messages) {
 
-      const [prospects] =
-        await connection.query(
-          `
-                    SELECT
-                        id,
-                        first_name,
-                        last_name,
-                        company_name,
-                        email,
-                        phone
-                    FROM md_prospects
-                    WHERE id = ?
-                    `,
-          [item.prospectId || item.prospect_id]
+      const prospectId =
+        item.prospectId ||
+        item.prospect_id;
+
+      const [prospects] = await connection.query(
+          `SELECT
+            id,
+            first_name,
+            last_name,
+            company_name,
+            email,
+            phone,
+            city,
+            country
+          FROM md_prospects
+          WHERE id = ?
+          `,
+          [prospectId]
         );
 
       if (!prospects.length) {
         throw CreateError(
           404,
-          `Prospect not found: ${item.prospectId ||
-          item.prospect_id
-          }`
+          `Prospect not found: ${prospectId}`
         );
       }
 
       const prospect = prospects[0];
 
       const prospectData = {
-        name:
-          `${prospect.first_name || ''} ${prospect.last_name || ''}`.trim(),
-        company_name:
-          prospect.company_name,
+        first_name: prospect.first_name,
+        last_name: prospect.last_name,
         email: prospect.email,
-        phone: prospect.phone
+        phone: prospect.phone,
+        city: prospect.city,
+        country: prospect.country,
+        company_name: prospect.company_name
       };
 
       const finalPayload = {
@@ -183,7 +304,11 @@ export const enqueueBulkMessages = async ({
       };
 
       for (const variable of requiredVars) {
-        if (!(variable in finalPayload)) {
+
+        if (
+          finalPayload[variable] === undefined ||
+          finalPayload[variable] === null
+        ) {
           throw CreateError(
             400,
             `Missing variable: ${variable} for prospect ${prospect.id}`
@@ -194,39 +319,47 @@ export const enqueueBulkMessages = async ({
       let toAddress = null;
 
       if (template.channel === 'EMAIL') {
-        toAddress = prospect.email;
-      }
 
-      if (
+        toAddress = prospect.email;
+
+      } else if (
         template.channel === 'SMS' ||
         template.channel === 'WHATSAPP'
       ) {
+
         toAddress = prospect.phone;
+
+      } else {
+
+        throw CreateError(
+          400,
+          `Unsupported channel: ${template.channel}`
+        );
       }
 
       if (!toAddress) {
+
         throw CreateError(
           400,
           `Recipient address not found for prospect ${prospect.id}`
         );
       }
 
-      const [result] =
+      const [queueResult] =
         await connection.query(
           `
-                    INSERT INTO td_messages_queue
-                    (
-                        prospect_id,
-                        channel,
-                        template_id,
-                        to_address,
-                        payload,
-                        status,
-                        created_by
-                    )
-                    VALUES
-                    (?, ?, ?, ?, ?, 'PENDING', ?)
-                    `,
+          INSERT INTO td_messages_queue
+          (
+            prospect_id,
+            channel,
+            template_id,
+            to_address,
+            payload,
+            created_by
+          )
+          VALUES
+          (?, ?, ?, ?, ?, ?)
+          `,
           [
             prospect.id,
             template.channel,
@@ -237,12 +370,37 @@ export const enqueueBulkMessages = async ({
           ]
         );
 
-      queueIds.push(result.insertId);
+      queueIds.push(
+        queueResult.insertId
+      );
+
+      await connection.query(
+        `
+        INSERT INTO td_activity
+        (
+          prospect_id,
+          activity_type,
+          activity_status,
+          message_queue_id,
+          created_by
+        )
+        VALUES
+        (?, ?, ?, ?)
+        `,
+        [
+          prospect.id,
+          activityTypeMap[template.channel],
+          1, // PENDING
+          queueResult.insertId,
+          created_by
+        ]
+      );
     }
 
     await connection.commit();
 
     return {
+      success: true,
       totalMessages: queueIds.length,
       queueIds,
       message:
@@ -257,164 +415,9 @@ export const enqueueBulkMessages = async ({
   } finally {
 
     connection.release();
+
   }
 };
-
-export const enqueueMessage = async ({
-  template_id,
-  prospect_id,
-  payload = {},
-  created_by
-}) => {
-
-  const connection = await db.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [rows] = await connection.query(
-      `
-            SELECT
-                t.id AS template_id,
-                t.channel,
-                t.subject,
-                t.body,
-                t.variables,
-
-                p.id AS prospect_id,
-                CONCAT(
-                    COALESCE(p.first_name, ''),
-                    ' ',
-                    COALESCE(p.last_name, '')
-                ) AS contact_name,
-                p.company_name,
-                p.email,
-                p.phone
-
-            FROM md_message_templates t
-            INNER JOIN md_prospects p
-                ON p.id = ?
-
-            WHERE t.id = ?
-            `,
-      [prospect_id, template_id]
-    );
-
-    if (!rows.length) {
-      throw CreateError(
-        404,
-        'Template or Prospect not found'
-      );
-    }
-
-    const data = rows[0];
-
-    const matches =
-      data.body.match(/{{(.*?)}}/g) || [];
-
-    const requiredVars = [
-      ...new Set(
-        matches.map(variable =>
-          variable
-            .replace(/[{}]/g, '')
-            .trim()
-        )
-      )
-    ];
-
-    const prospectData = {
-      name: data.contact_name,
-      company_name: data.company_name,
-      email: data.email,
-      phone: data.phone
-    };
-
-    const finalPayload = {
-      ...prospectData,
-      ...payload
-    };
-
-    for (const variable of requiredVars) {
-      if (!(variable in finalPayload)) {
-        throw CreateError(
-          400,
-          `Missing variable: ${variable}`
-        );
-      }
-    }
-
-    let toAddress = null;
-
-    if (data.channel === 'EMAIL') {
-      toAddress = data.email;
-    }
-
-    if (
-      data.channel === 'SMS' ||
-      data.channel === 'WHATSAPP'
-    ) {
-      toAddress = data.phone;
-    }
-
-    if (!toAddress) {
-      throw CreateError(
-        400,
-        'Recipient address not found'
-      );
-    }
-
-    const [result] = await connection.query(
-      `
-            INSERT INTO td_messages_queue
-            (
-                prospect_id,
-                channel,
-                template_id,
-                to_address,
-                payload,
-                created_by
-            )
-            VALUES
-            (?, ?, ?, ?, ?, ?)
-            `,
-      [
-        data.prospect_id,
-        data.channel,
-        data.template_id,
-        toAddress,
-        JSON.stringify(finalPayload),
-        created_by
-      ]
-    );
-
-    await connection.commit();
-
-    return {
-      queueId: result.insertId,
-      message: 'Message queued successfully'
-    };
-
-  } catch (err) {
-
-    await connection.rollback();
-    throw err;
-
-  } finally {
-
-    connection.release();
-  }
-};
-/* 
-{
-  "template_id": 2,
-  "prospect_id": 101,
-  "userId": 10,
-  "payload": {
-    "meeting_date": "2026-05-02",
-    "meeting_link": "https://meet.google.com/abc"
-  }
-}
-*/
 
 export const queue = async ({ status, channel, prospect_id, limit, lastId }) => {
   let query = `
@@ -462,6 +465,8 @@ export const queue = async ({ status, channel, prospect_id, limit, lastId }) => 
   }
   query += `ORDER BY id ASC LIMIT ? `;
   values.push(limit);
+  console.log(query);
+  console.log(value);
   const [rows] = await db.query(query, values);
   return { rows, nextLastId: rows.length ? rows[rows.length - 1].id : null };
 };
@@ -545,11 +550,7 @@ export const postTemplates = async ({
 export const updateTemplates = async ({ id, data }) => {
   try {
     const [rows] = await db.query(
-      `
-            SELECT id
-            FROM md_message_templates
-            WHERE id = ?
-            `,
+      `SELECT id FROM md_message_templates WHERE id = ?`,
       [id]
     );
 
@@ -557,41 +558,48 @@ export const updateTemplates = async ({ id, data }) => {
       throw CreateError(404, 'Template not found');
     }
 
-    const { subject, body } = data;
+    const updates = [];
+    const values = [];
 
-    const matches = body?.match(/{{(.*?)}}/g) || [];
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined) {
+        updates.push(`${key} = ?`);
+        values.push(value);
+      }
+    });
 
-    const variables = [
-      ...new Set(
-        matches.map(variable =>
-          variable.replace(/[{}]/g, '').trim()
+    if (data.body !== undefined) {
+      const matches = data.body.match(/{{(.*?)}}/g) || [];
+
+      const variables = [
+        ...new Set(
+          matches.map(v => v.replace(/[{}]/g, '').trim())
         )
-      )
-    ];
+      ];
+
+      updates.push('variables = ?');
+      values.push(JSON.stringify(variables));
+    }
+
+    if (!updates.length) {
+      throw CreateError(400, 'No fields provided for update');
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
 
     await db.query(
       `
-            UPDATE md_message_templates
-            SET
-                subject = ?,
-                body = ?,
-                variables = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            `,
-      [
-        subject || null,
-        body,
-        JSON.stringify(variables),
-        id
-      ]
+      UPDATE md_message_templates
+      SET ${updates.join(', ')}
+      WHERE id = ?
+      `,
+      [...values, id]
     );
 
     return {
       success: true,
       message: 'Template updated successfully'
     };
-
   } catch (err) {
     throw err;
   }

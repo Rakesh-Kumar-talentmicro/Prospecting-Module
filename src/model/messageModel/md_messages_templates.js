@@ -3,11 +3,9 @@ import db from "../../config/db.js";
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_message_templates (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  template_code VARCHAR(100) NOT NULL,
+  template_code BIGINT NOT NULL,
   language_id VARCHAR(3) NOT NULL,
   channel SMALLINT,
-  language_id VARCHAR(10) NOT NULL,
-  channel ENUM('EMAIL', 'SMS', 'WHATSAPP') NOT NULL,
   subject VARCHAR(500) NOT NULL,
   body TEXT NOT NULL,
   variables JSON,

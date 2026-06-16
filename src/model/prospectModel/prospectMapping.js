@@ -1,6 +1,7 @@
 export const prospectMapping = [
   // Prospect core fields
   ['id', 'prospectId', 'number'],
+  ['id', 'prospectIds', 'array'],
   ['company_name', 'companyName', 'string'],
   ['first_name', 'firstName', 'string'],
   ['last_name', 'lastName', 'string'],
@@ -13,10 +14,6 @@ export const prospectMapping = [
   ['country', 'country', 'string'],
   ['country_iso', 'countryIso', 'number'],
   ['website_url', 'websiteUrl', 'string'],
-  ['linkedin_url', 'linkedinUrl', 'string'],
-  ['facebook_url', 'facebookUrl', 'string'],
-  ['instagram_url', 'instagramUrl', 'string'],
-  ['twitter_url', 'twitterUrl', 'string'],
   ['industry_id', 'industryId', 'number'],
   ['industry_size_id', 'industrySizeId', 'number'],
   ['source_id', 'sourceId', 'number'],
@@ -33,6 +30,7 @@ export const prospectMapping = [
   ['duplicate_count', 'duplicateCount', 'number'],
   ['created_at', 'createdAt', 'date'],
   ['updated_at', 'updatedAt', 'date'],
+  ['reason_id','reasonId','number'],
 
   // Dashboard Mapping
   ['total_prospects', 'totalProspects', 'number'],
@@ -64,5 +62,12 @@ export const prospectMapping = [
   ['conversion_percentage', 'conversionPercentage', 'number'],
 
   // prospectSourcingReportMapping 
-  ['sourced_prospects', 'sourcedProspects', 'number']
+  ['sourced_prospects', 'sourcedProspects', 'number'],
+
+  // counteries
+  ['iso_code', 'isoCode', 'string'],
+  ['iso_code3', 'isoCode3', 'string'],
+  ['country_name', 'countryName', 'string'],
+  ['dial_code', 'dialCode', 'string'],
+  ['flag_svg_url', 'flagSvgUrl', 'string']
 ];

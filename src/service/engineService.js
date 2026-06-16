@@ -42,7 +42,7 @@ export const processQueue = async () => {
                 worker_id = ?,
                 last_attempt_at = NOW()
             WHERE status = 'PENDING'
-              AND isActive = 1
+              AND isActive = TRUE
               AND attempt_number < max_attempt_number
             ORDER BY id
             LIMIT ?
@@ -76,6 +76,7 @@ export const processQueue = async () => {
         const successIds = [];
         const failedIds = [];
         const logs = [];
+        const permanentlyFailedIds = [];
         for (const message of messages) {
             try {
                 let payload = {};
@@ -116,7 +117,10 @@ export const processQueue = async () => {
             } catch (err) {
 
                 failedIds.push(message.id);
-
+                if (message.attempt_number + 1 >=message.max_attempt_number)
+                {
+                    permanentlyFailedIds.push(message.id);
+                }
                 logs.push([
                     message.id,
                     message.channel,
@@ -141,6 +145,15 @@ export const processQueue = async () => {
                     attempt_number = attempt_number + 1
                 WHERE id IN (?)
             `, [successIds]);
+
+            await db.query(
+                `
+                UPDATE td_activity
+                SET
+                    activity_status = 2
+                WHERE message_queue_id IN (?)
+                `,[successIds]
+            );
         }
 
         if (failedIds.length) {
@@ -159,7 +172,17 @@ export const processQueue = async () => {
                 WHERE id IN (?)
             `, [failedIds]);
         }
-
+        if (permanentlyFailedIds.length) {
+            await db.query(
+                `
+                UPDATE td_activity
+                SET
+                    activity_status = 3
+                WHERE message_queue_id IN (?)
+                `,
+                [permanentlyFailedIds]
+            );
+        }
         if (logs.length) {
 
             await db.query(`
