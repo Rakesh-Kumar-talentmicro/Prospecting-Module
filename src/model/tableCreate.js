@@ -4,6 +4,7 @@ import {createProspectTables} from "./prospectModel/index.js";
 
 export async function createAllTable(){
     await createMasterTables();
-    await createMessageTables();
     await createProspectTables();
+    await createMessageTables();
+    
 };
