@@ -39,24 +39,12 @@ export const listProspects = async (req, res, next) => {
         const offset = (parseInt(page, 10) - 1) * limits;
         let query = `SELECT
             p.*,
-            sh.stage_code,
             c.flag_svg_url,
             c.iso_code3
         FROM md_prospects p
-        LEFT JOIN (
-            SELECT h1.prospect_key, h1.stage_code
-            FROM td_prospect_stage_history h1
-            INNER JOIN (
-                SELECT prospect_key, MAX(id) AS max_id
-                FROM td_prospect_stage_history
-                GROUP BY prospect_key
-            ) h2
-            ON h1.id = h2.max_id
-        ) sh
-            ON p.prospect_key = sh.prospect_key
-        LEFT JOIN md_countries c
-            ON c.iso_code = p.country_iso
-        WHERE 1 = 1`;
+                LEFT JOIN md_countries c
+            ON c.country_name = p.country
+        WHERE p.country = 'India'`;
 
         const values = [];
 
@@ -124,10 +112,10 @@ export const moveStage = async (req, res, next) => {
     try {
         const normalizedBody = normalizeInputData([req.body],prospectMapping)[0];
         const normalizedParams = normalizeInputData([{ prospectId: req.params.id }],prospectMapping)[0];
-        const { prospectId } = normalizedParams;
-        const {newStage,reasonId} = normalizedBody;
+        const { id } = normalizedParams;
+        const {stage_code,reason_id} = normalizedBody;
         const bd_id = req.headers['user-id'] || 1;
-        const result = await prospectService.moveStage({prospectId,newStage,reasonId,bd_id},db);
+        const result = await prospectService.moveStage({id,stage_code,reason_id,bd_id},db);
         return res.status(200).json({success: true,data: result});
     } catch (err) {
         next(err);
@@ -136,41 +124,24 @@ export const moveStage = async (req, res, next) => {
 
 export const transferProspects = async (req, res, next) => {
     try {
-        const userId = Number(req.headers['user-id']) || 1;
+        const userId = Number(req.headers['user-id']) || 2;
         const normalizedData = normalizeInputData([req.body], prospectMapping)[0];
-        const { prospectIds, new_bd_id } = normalizedData;
-        if (!prospectIds || !new_bd_id) {
+        const { id, new_bd_id } = normalizedData;
+        if (!id || !new_bd_id) {
             return res.status(400).json({ success: false, message: 'prospectIds and newBdId are required' });
         }
-        const result = await prospectService.transferProspects({ prospectIds, newBdId: new_bd_id,userId }, db);
+        const result = await prospectService.transferProspects({ id, newBdId: new_bd_id,userId }, db);
         return res.status(200).json(result);
     } catch (err) {
         next(err);
     }
 };
 
-export const getProspectHistory = async (
-    req,
-    res,
-    next
-) => {
+export const getProspectHistory = async (req,res,next) => {
     try {
-
-        const normalizedParams =
-            normalizeInputData(
-                [{ prospectId: req.params.id }],
-                prospectMapping
-            )[0];
-
-        const { id: prospectId } =
-            normalizedParams;
-
-        const result =
-            await prospectService.getProspectHistory(
-                { prospectId },
-                db
-            );
-
+        const normalizedParams = normalizeInputData([{ prospectId: req.params.id }],prospectMapping)[0];
+        const { id } = normalizedParams;
+        const result = await prospectService.getProspectHistory({ id },db);
         return res.status(200).json({
             success: true,
             data: result

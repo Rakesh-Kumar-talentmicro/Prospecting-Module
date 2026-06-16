@@ -18,15 +18,8 @@ export const getDashboardTiles = async (req, res, next) => {
 
 export const getBD = async (req, res, next) => {
     try {
-        const result =
-            await dashboardService.getBD();
-
-        return res.json(
-            normalizeOutputData(
-                result,
-                prospectMapping
-            )
-        );
+        const result = await dashboardService.getBD();
+        return res.json(normalizeOutputData(result,prospectMapping));
     } catch (err) {
         next(err);
     }
@@ -50,9 +43,7 @@ export const monthlyCT = async (req, res, next) => {
 
 export const bdmonthlyCT = async (req, res, next) => {
     try {
-        const result =
-            await dashboardService.bdmonthlyCT();
-
+        const result = await dashboardService.bdmonthlyCT();
         return res.json(
             normalizeOutputData(
                 result,

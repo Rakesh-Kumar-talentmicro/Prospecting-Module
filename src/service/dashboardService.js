@@ -9,13 +9,7 @@ export const getDashboardTiles = async () => {
             SUM(stage_code = 3) AS engaged,
             SUM(stage_code = 4) AS converted,
             SUM(stage_code = 5) AS parked
-        FROM td_prospect_stage_history t1
-        INNER JOIN (
-            SELECT prospect_key, MAX(id) AS max_id
-            FROM td_prospect_stage_history
-            GROUP BY prospect_key
-        ) t2
-            ON t1.id = t2.max_id
+        FROM md_prospects
     `);
 
     return rows[0] || {
@@ -27,7 +21,6 @@ export const getDashboardTiles = async () => {
         parked: 0
     };
 };
-
 export const getBD = async () => {
     const [rows] = await db.query(`
         SELECT

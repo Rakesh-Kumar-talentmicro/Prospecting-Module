@@ -119,11 +119,9 @@ export const getLanguages = async () => {
       `SELECT
          language_id,
          language_name,
-         native_name,
-         direction
+         native_name
        FROM md_languages
-       WHERE is_active = 1
-       ORDER BY sort_order`
+       ORDER BY language_id ;`
     );
 
     return rows;

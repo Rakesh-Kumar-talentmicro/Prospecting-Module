@@ -5,6 +5,7 @@ import { createTable as stageHistoryTable } from "./td_prospect_stage_history.js
 import { createTable as updateLogTable } from "./update_logs.js";
 import { createTable as activityTable } from "./activity.js";
 import { createTable as noteTable} from "../notesModel/td_notes.js";
+import { createTable as countryTable} from "./md_countries.js";
 
 export async function createProspectTables() {
     await assignTable();
@@ -14,4 +15,5 @@ export async function createProspectTables() {
     await updateLogTable();
     await activityTable();
     await noteTable();
+    await countryTable();
 };

@@ -10,13 +10,12 @@ import dotenv from 'dotenv';
 import errorHandler from "./src/middleware/errorHandler.js";
 import { createAllTable } from "./src/model/tableCreate.js"
 
-dotenv.config();
-
+dotenv.config({});
 const app = express();
 app.use(express.json());
 
-await createAllTable();             //  ----> This function will create all tables from models directly into each system 
-app.use('/messages', messagesRoutes);
+// await createAllTable();             //  ----> This function will create all tables from models directly into each system 
+app.use('/messages',  messagesRoutes);
 app.use('/prospects', prospectRoutes);
 app.use('/masters',   masterRoutes);
 app.use('/notes',     notesRoutes);

@@ -35,6 +35,14 @@ const castType = (value, type) => {
             return String(value);
         case 'date':
             return new Date(value);
+        case 'array':
+            return Array.isArray(value)
+                ? value.map(Number)
+                : [Number(value)];
+        case 'object':
+            return typeof value === 'object' && !Array.isArray(value)
+                ? value
+                : { value };
         default:
             return value;
     }

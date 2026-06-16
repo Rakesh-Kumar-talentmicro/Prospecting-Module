@@ -7,12 +7,12 @@ export const sendBulk = async (req, res, next) => {
   try {
     const requestData = normalizeInputData([req.body], messageMapping)[0];
 
-    const { template_id } = requestData;
+    const { id } = requestData;
     const { messages } = req.body;
 
     const createdBy = Number(req.headers["user-id"]) || 1;
 
-    if (!template_id) {
+    if (!id) {
       return next(CreateError(400, "templateId is required"));
     }
 
@@ -21,7 +21,7 @@ export const sendBulk = async (req, res, next) => {
     }
 
     const result = await messageService.enqueueBulkMessages({
-      template_id,
+      id,
       created_by: createdBy,
       messages,
     });
@@ -40,11 +40,11 @@ export const sendBulk = async (req, res, next) => {
 export const sendSingle = async (req, res, next) => {
   try {
     const messageData = normalizeInputData([req.body], messageMapping)[0];
-    const { template_id, prospect_id, payload = {} } = messageData;
+    const { id, prospect_id, payload = {} } = messageData;
 
-    const createdBy = Number(req.headers["user-id"]) || 1;
+    const createdBy = Number(req.headers["user-id"]) || 2;
 
-    if (!template_id || !prospect_id) {
+    if (!id || !prospect_id) {
       return next(CreateError(400, "templateId and prospectId are required"));
     }
 
@@ -53,7 +53,7 @@ export const sendSingle = async (req, res, next) => {
     }
 
     const result = await messageService.enqueueMessage({
-      template_id,
+      id,
       prospect_id,
       payload,
       created_by: createdBy,
@@ -163,9 +163,7 @@ export const postTemplates = async (req, res, next) => {
 export const updateTemplates = async (req, res, next) => {
   try {
     const { id } = req.params;
-
     const data = normalizeInputData([req.body], messageMapping)[0];
-
     const result = await messageService.updateTemplates({
       id: Number(id),
       data,
@@ -180,16 +178,12 @@ export const updateTemplates = async (req, res, next) => {
 export const getTemplates = async (req, res, next) => {
   try {
     const normalizedQuery = normalizeInputData([req.query], messageMapping)[0];
-
     let { template_code, channel, language_id } = normalizedQuery;
-
     const limit = parseInt(req.query.limit, 10) || 30;
     const lastId = parseInt(req.query.lastId, 10) || 0;
-
     if (channel && typeof channel === "string") {
       channel = channel.split(",");
     }
-
     const result = await messageService.getTemplates({
       template_code,
       channel,
