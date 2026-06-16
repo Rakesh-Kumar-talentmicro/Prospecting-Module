@@ -9,7 +9,7 @@ import importRoutes from './src/routes/importRoutes.js';
 import dotenv from 'dotenv';
 import errorHandler from "./src/middleware/errorHandler.js";
 import { createAllTable } from "./src/model/tableCreate.js"
-
+ 
 dotenv.config({});
 const app = express();
 app.use(express.json());
