@@ -17,3 +17,4 @@ export async function createTable() {
     console.error("Error creating md_activity_status table", err);
   }
 }
+

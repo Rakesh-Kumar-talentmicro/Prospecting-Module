@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS md_activity_status_translated (
   UNIQUE KEY uk_activity_status_lang (activity_id, lang_id),
   CONSTRAINT fk_activity_status
     FOREIGN KEY (activity_id) REFERENCES md_activity_status (id)
-)
+);
 `;
 
 export async function createTable() {
