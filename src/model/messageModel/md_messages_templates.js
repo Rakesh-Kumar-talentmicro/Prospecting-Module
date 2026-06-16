@@ -3,7 +3,7 @@ import db from "../../config/db.js";
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_message_templates (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  template_code INT NOT NULL,
+  template_code BIGINT NOT NULL,
   language_id VARCHAR(3) NOT NULL,
   channel SMALLINT,
   subject VARCHAR(500) NOT NULL,

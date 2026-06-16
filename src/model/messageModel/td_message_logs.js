@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS td_message_logs (
   channel SMALLINT,
   status SMALLINT,
   provider VARCHAR(100),
-  provider_messageid VARCHAR(255),
+  provider_msg_id VARCHAR(255),
   to_address VARCHAR(500) NOT NULL,
   response_body TEXT,
   error_message TEXT,
