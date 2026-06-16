@@ -37,7 +37,9 @@ const IMPORT_STATUS = Object.freeze({ PROCESSING: 0, SUCCESS: 1, ERROR: 2 });
 const ROW_STATUS    = Object.freeze({ IMPORTED: 1, SKIPPED: 2, DUPLICATE: 3 });
 
 const IMPORT_BATCH_SIZE         = Number(process.env.IMPORT_BATCH_SIZE                  || 2000);
-const PROGRESS_TTL_SECONDS      = Number(process.env.IMPORT_PROGRESS_TTL_SECONDS         || 7 * 24 * 60 * 60);
+// 2-minute TTL — refreshed after every batch so active imports never expire mid-run.
+// On completion / failure the key is explicitly deleted.
+const PROGRESS_TTL_SECONDS      = Number(process.env.IMPORT_PROGRESS_TTL_SECONDS         || 120);
 const QUEUE_OPERATION_TIMEOUT_MS= Number(process.env.IMPORT_QUEUE_OPERATION_TIMEOUT_MS   || 10000);
 const IMPORT_ROOT               = path.resolve(process.env.IMPORT_STORAGE_DIR            || 'storage/imports');
 
@@ -49,29 +51,35 @@ const supportedExtensions = new Set(['.csv', '.xlsx']);
 // Build a lookup Map: dbKey → frontendKey from prospectMapping
 const frontendKeysByDbKey = new Map(prospectMapping.map(([dbKey, frontendKey]) => [dbKey, frontendKey]));
 
-// Headers allowed in the upload template
+// Headers silently accepted but NOT inserted — present in legacy templates,
+// added dynamically via API instead.
+const ignoredImportHeaders = new Set([
+  'contact_name', 'contactName',
+  'linkedin_url',  'linkedinUrl',
+  'facebook_url',  'facebookUrl',
+  'instagram_url', 'instagramUrl',
+  'twitter_url',   'twitterUrl',
+  'notes',
+  'follow_up_date', 'followUpDate',
+]);
+
+// Headers allowed in the upload template (includes ignored-but-accepted ones)
 const allowedHeaders = new Set([
   ...prospectMapping.flatMap(([dbKey, frontendKey]) => [dbKey, frontendKey]),
-  'follow_up_date',
   'sourced_date',
   'preferred_lang_id',
-  'contact_name',
   'company_name',
+  ...ignoredImportHeaders,
 ]);
 
 // Columns to INSERT into md_prospects (must match actual table columns)
 const importColumns = [
   'company_name',
-  'contact_name',
   'first_name',
   'last_name',
   'job_title',
   'email',
   'phone',
-  'linkedin_url',
-  'facebook_url',
-  'instagram_url',
-  'twitter_url',
   'city',
   'state',
   'country',
@@ -80,8 +88,6 @@ const importColumns = [
   'industry_size_id',
   'source_id',
   'referral_name',
-  'notes',
-  'follow_up_date',
   'preferred_lang_id',
   'created_by',       // populated with uploadedBy (userId)
   'stage_code',
@@ -124,24 +130,6 @@ const toNullablePositiveInteger = (value, fieldName) => {
   return n;
 };
 
-const parseDateValue = (value, fieldName) => {
-  if (value === undefined || value === null || value === '') return null;
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) throw new Error(`Invalid ${fieldName}`);
-    return value;
-  }
-  if (typeof value === 'number' || /^\d+(\.\d+)?$/.test(String(value).trim())) {
-    const serial = Number(value);
-    // Excel date serial (days since 1900-01-00)
-    if (serial > 20000 && serial < 80000) {
-      return new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
-    }
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid ${fieldName}`);
-  return parsed;
-};
-
 // ─── Cell / header helpers (Excel + CSV unified) ─────────────────────────────
 
 const cellToValue = (value) => {
@@ -173,12 +161,6 @@ const cleanRawRow = (row) => {
   return cleaned;
 };
 
-const getRawValue = (cleanedRow, dbKey) => {
-  const frontendKey = frontendKeysByDbKey.get(dbKey);
-  if (cleanedRow[dbKey]       !== undefined) return cleanedRow[dbKey];
-  if (frontendKey && cleanedRow[frontendKey] !== undefined) return cleanedRow[frontendKey];
-  return undefined;
-};
 
 // ─── prospect_key helpers ─────────────────────────────────────────────────────
 
@@ -565,24 +547,16 @@ const buildImportProspect = ({ rawRow, sourceRowNumber, uploadedBy, lookups }) =
 
   const prospectKey = buildProspectKey(phone, websiteUrl);
 
-  // parse date fields from raw row (dates come through as Excel serial numbers or strings)
-  const followUpDate = parseDateValue(getRawValue(cleanRawRow(rawRow), 'follow_up_date'), 'follow_up_date');
-
   return {
     sourceRowNumber,
     prospectKey,
     data: {
       company_name:     toNullableString(normalized.company_name),
-      contact_name:     toNullableString(normalized.contact_name),
       first_name:       toNullableString(normalized.first_name),
       last_name:        toNullableString(normalized.last_name),
       job_title:        toNullableString(normalized.job_title),
       email,
       phone,
-      linkedin_url:     toNullableString(normalized.linkedin_url),
-      facebook_url:     toNullableString(normalized.facebook_url),
-      instagram_url:    toNullableString(normalized.instagram_url),
-      twitter_url:      toNullableString(normalized.twitter_url),
       city:             toNullableString(normalized.city),
       state:            toNullableString(normalized.state),
       country:          toNullableString(normalized.country),
@@ -591,8 +565,6 @@ const buildImportProspect = ({ rawRow, sourceRowNumber, uploadedBy, lookups }) =
       industry_size_id: industrySizeId,
       source_id:        sourceId,
       referral_name:    referralName,
-      notes:            toNullableString(normalized.notes),
-      follow_up_date:   followUpDate,
       preferred_lang_id: toNullableString(normalized.preferred_lang_id) || 'EN',
       created_by:       uploadedBy || null,
       stage_code:       lookups.initialStageCode,
