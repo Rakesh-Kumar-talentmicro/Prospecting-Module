@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS md_reasons_translated (
   PRIMARY KEY (reason_id, lang_id),
   CONSTRAINT fk_reason_translated
     FOREIGN KEY (reason_id) REFERENCES md_reasons (reason_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+)
 `;
 
 export async function createTable() {

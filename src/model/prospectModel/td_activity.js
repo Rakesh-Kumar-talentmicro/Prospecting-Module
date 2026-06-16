@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS td_activity (
     prospect_id BIGINT NOT NULL,
     activity_type SMALLINT NOT NULL,
     activity_status SMALLINT NULL,
+    message_queue_id BIGINT NULL
     created_by BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_prospect_id (prospect_id),
     INDEX idx_activity_type (activity_type),
     INDEX idx_activity_status (activity_status),

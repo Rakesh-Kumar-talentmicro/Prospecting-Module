@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS md_stages (
   progress INT NOT NULL,
   PRIMARY KEY (stage_code),
   UNIQUE KEY stage_key (stage_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+)
 `;
 
 export async function createTable() {

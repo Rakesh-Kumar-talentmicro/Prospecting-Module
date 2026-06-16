@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS md_stages_translation (
     FOREIGN KEY (stage_code) REFERENCES md_stages (stage_code),
   CONSTRAINT md_stages_translation_ibfk_2
     FOREIGN KEY (lang_id) REFERENCES md_languages (language_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+)
 `;
 
 export async function createTable() {

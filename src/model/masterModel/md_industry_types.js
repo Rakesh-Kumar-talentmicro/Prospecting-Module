@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS md_industry_types (
   lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   PRIMARY KEY (industry_id),
   UNIQUE KEY uk_md_indusrty_types_title (title)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+)
 `;
 
 export async function createTable() {
