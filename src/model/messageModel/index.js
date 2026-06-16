@@ -6,9 +6,10 @@ import { createTable as messageLog } from "./td_message_logs.js";
 import { createTable as enumTable} from "./md_message_enum.js";
 
 export async function createMessageTables() {
+  //await enumTable();
   await messageTemplates();
-  //await messageIndexes();
   await messageQueue();
   await messageLog();
-  // await enumTable();
+  //await messageIndexes();
+
 };

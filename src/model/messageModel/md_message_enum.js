@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS md_message_channel_enum(
 );
 
 INSERT INTO md_message_status_enum(id,status_name)
-  VALUE(1,"PENDING"),(2,"PROCESSING"),(3,"SENT"),(4,"FAILED");
+  VALUES(1,"PENDING"),(2,"PROCESSING"),(3,"SENT"),(4,"FAILED");
 
 INSERT INTO md_message_channel_enum(id,channel_name)
-  VALUE(1,"EMAIL"),(2,"SMS"),(3,"WHATSAPP"); 
+  VALUES(1,"EMAIL"),(2,"SMS"),(3,"WHATSAPP"); 
 `;
 
 export async function createTable() {

@@ -2,13 +2,13 @@ import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_activity_status_translated (
-  activity_id INT NOT NULL AUTO_INCREMENT,
+  activity_id SMALLINT NOT NULL AUTO_INCREMENT,
   lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   translated_title VARCHAR(100) NOT NULL,
   PRIMARY KEY (activity_id),
   UNIQUE KEY uk_activity_status_lang (activity_id, lang_id),
   CONSTRAINT fk_activity_status
-    FOREIGN KEY (activity_id) REFERENCES md_activity_status (activity_id)
+    FOREIGN KEY (activity_id) REFERENCES md_activity_status (id)
 )
 `;
 

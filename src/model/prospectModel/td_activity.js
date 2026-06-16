@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS td_activity (
     prospect_id BIGINT NOT NULL,
     activity_type SMALLINT NOT NULL,
     activity_status SMALLINT NULL,
-    message_queue_id BIGINT NULL
+    message_queue_id BIGINT NULL,
     created_by BIGINT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
