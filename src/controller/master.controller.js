@@ -68,9 +68,6 @@ export const getSources = async (req, res, next) => {
 export const getLanguages = async (req, res, next) => {
   try {
     const data = await masterService.getLanguages();
-    // const data = encryptPayload(
-    //   dataByDb
-    // );
     return sendData(res, data);
   } catch (err) {
     next(err);
