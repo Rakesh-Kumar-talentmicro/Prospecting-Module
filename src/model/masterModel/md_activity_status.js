@@ -2,7 +2,7 @@ import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_activity_status (
-    id SMALLINT PRIMARY KEY AUTO_INCREMENT,
+    id SMALLINT KEY AUTO_INCREMENT,
     activity_status VARCHAR(50) NOT NULL,
     seq SMALLINT,
     lang_id VARCHAR(10) DEFAULT 'EN'

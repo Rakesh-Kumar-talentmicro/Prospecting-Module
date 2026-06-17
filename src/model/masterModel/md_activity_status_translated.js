@@ -2,7 +2,7 @@ import db from "../../config/db.js";
 
 const createTableQuery = `
 CREATE TABLE IF NOT EXISTS md_activity_status_translated (
-  activity_id SMALLINT NOT NULL AUTO_INCREMENT,
+  activity_id SMALLINT NOT NULL,
   lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   translated_title VARCHAR(100) NOT NULL,
   PRIMARY KEY (activity_id),

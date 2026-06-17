@@ -310,125 +310,124 @@ const validateReferralName = async ({ sourceId, referralName, currentProspectId 
   return normalizedReferralName;
 };
 
-export const createSingleProspect = async ({ prospect, userId }, db) => {
-  const connection = await db.getConnection();
-  await connection.beginTransaction();
-  const CustomKey = (row) => `prospect:${normalize(row.email)}|` + `${normalizePhone(row.phone)}|` + `${normalize(row.company_name)}`;
-  // try {
-  //   const stageCode = prospect.stage_code !== undefined && prospect.stage_code !== null && prospect.stage_code !== ''
-  //     ? prospect.stage_code
-  //     : await getInitialStageCode(connection);
-  //   const sourceId = prospect.source_id || await getDirectSourceId(connection);
-  //   const sourcedDate = prospect.sourced_date || new Date();
-
-  //   const newProspect = {
-  //     ...filterProspectUpdates(prospect),
-  //     source_id: sourceId,
-  //     stage_code: stageCode,
-  //     sourced_date: sourcedDate
-  //   };
-
-  //   await assertProspectReferences(newProspect, connection);
-  //   const stageReason = await validateStageReason({
-  //     stageCode: newProspect.stage_code,
-  //     reasonId: newProspect.reason_id
-  //   }, connection);
-  //   newProspect.stage_code = stageReason.stageCode;
-  //   newProspect.reason_id = stageReason.reasonId;
-  //   newProspect.referral_name = await validateReferralName({
-  //     sourceId,
-  //     referralName: newProspect.referral_name
-  //   }, connection);
-
-  //   const columns = [
-  //     'company_name', 'contact_name', 'job_title', 'email', 'phone',
-  //     'linkedin_url', 'twitter_url', 'facebook_url', 'instagram_url',
-  //     'industry_id', 'industry_size_id', 'source_id', 'referral_name',
-  //     'sourced_date', 'sourced_by_name', 'stage_code', 'assigned_user_id',
-  //     'reason_id', 'notes', 'follow_up_date', 'preferred_lang_id', 'created_by'
-  //   ];
-  //   const values = columns.map((column) => {
-  //     if (column === 'created_by') return userId;
-  //     return newProspect[column] ?? null;
-  //   });
-
-  //   const [result] = await connection.query(
-  //     `INSERT INTO md_prospects (${columns.join(', ')})
-  //      VALUES (${columns.map(() => '?').join(', ')})`,
-  //     values
-  //   );
-
-  //   const [rows] = await connection.query('SELECT * FROM md_prospects WHERE id = ?', [result.insertId]);
-  //   await insertProspectLog({
-  //     prospectId: result.insertId,
-  //     changeType: 'CREATE',
-  //     newValues: rows[0],
-  //     changedBy: userId
-  //   }, connection);
-
-  //   await connection.commit();
-  //   return rows[0];
-  // } catch (err) {
-  //   await connection.rollback();
-  //   throw err;
-  // } finally {
-  //   connection.release();
-  // }
+// Prospect service code
+export const normalizeWebsiteForKey = (url) => {
+  if (!url) return '';
+  const raw = String(url).trim();
   try {
-    const key = CustomKey(prospect);
-    const [row] = db.query(`Select `)
-    const tdProspectsValues = [
-      key,
+    const withScheme = raw.startsWith('http') ? raw : `https://${raw}`;
+    const u = new URL(withScheme);
+    return u.hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+  }
+};
+
+export const createSingleProspect = async (
+  { prospect, userId },
+  db
+) => {
+  const connection = await db.getConnection();
+
+  const buildProspectKey = (
+    phone,
+    websiteUrl
+  ) => {
+    const normPhone = String(phone || '')
+      .replace(/\s+/g, '')
+      .trim();
+
+    const normWebsite =
+      normalizeWebsiteForKey(websiteUrl);
+
+    return `${normPhone}_${normWebsite}`
+      .toLowerCase();
+  };
+
+  try {
+    await connection.beginTransaction();
+
+    const prospectKey = buildProspectKey(
+      prospect.phone,
+      prospect.website_url
+    );
+
+    const insertValues = [
+      prospect.company_name || null,
       prospect.first_name || null,
       prospect.last_name || null,
       prospect.job_title || null,
       prospect.email || null,
       prospect.phone || null,
-      prospect.company_name || null,
       prospect.city || null,
       prospect.state || null,
       prospect.country || null,
       prospect.industry_id || null,
       prospect.industry_size_id || null,
       prospect.website_url || null,
-      prospect.preferred_lang_id || 'EN',
       prospect.source_id || null,
       prospect.referral_name || null,
-      prospect.source_bd_id || null,
-      0, 1];
-    if (tdProspectsValues.length) {
-      await db.query(
-        `INSERT INTO md_prospects (
-        prospect_key,
+      prospect.preferred_lang_id || 'EN',
+      prospect.source_bd_id || userId || null,
+      1, // stage_code
+      prospectKey,
+      prospect.country_iso || null
+    ];
+
+    const [result] = await connection.query(
+      `
+      INSERT INTO md_prospects
+      (
+        company_name,
         first_name,
         last_name,
         job_title,
         email,
         phone,
-        company_name,
         city,
         state,
         country,
         industry_id,
         industry_size_id,
         website_url,
-        preferred_lang_id,
         source_id,
         referral_name,
+        preferred_lang_id,
         source_bd_id,
-        duplicate_count,
-        status
-        ) VALUES ?`,
-        [tdProspectsValues.map((v) => [...v]),]
-      );
-    }
-    return res.status(201).json({ message: "Data is recorded" });
-  }
-  catch (err) {
+        stage_code,
+        prospect_key,
+        country_iso
+      )
+      VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      insertValues
+    );
+
+    await connection.commit();
+
+    return {
+      id: result.insertId,
+      prospect_key: prospectKey,
+      company_name: prospect.company_name,
+      first_name: prospect.first_name,
+      last_name: prospect.last_name,
+      email: prospect.email,
+      phone: prospect.phone,
+      source_bd_id:
+        prospect.source_bd_id || userId,
+      stage_code: 1
+    };
+
+  } catch (err) {
+
     await connection.rollback();
     throw err;
+
   } finally {
+
     connection.release();
+
   }
 };
 
