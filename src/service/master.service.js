@@ -5,6 +5,13 @@ import { REASON_REQUIRED_STAGE_KEYS, TERMINAL_STAGE_KEYS } from '../constants/st
 const DEFAULT_LANGUAGE_ID = 'EN';
 const MASTER_CACHE_TTL_MS = 5 * 60 * 1000;
  
+const normalizeLanguageId = (languageId) => {
+  if (!languageId || typeof languageId !== 'string') {
+    return DEFAULT_LANGUAGE_ID;
+  }
+  return languageId.trim().toUpperCase() || DEFAULT_LANGUAGE_ID;
+};
+
 const cache = new Map();
  
 const masterTables = {
