@@ -4,13 +4,21 @@ import { STAGE_KEYS, isReasonRequiredStage } from '../constants/stages.js';
 
 const REFERRAL_SOURCE_KEY = 'REFERRAL';
 const DIRECT_SOURCE_KEY = 'DIRECT';
+const PROCESS_BATCH_SIZE = Number(process.env.PROCESS_BATCH_SIZE || 50);
 
 const allowedProspectColumns = new Set([
   'company_name',
+  'first_name',
+  'last_name',
   'contact_name',
   'job_title',
   'email',
   'phone',
+  'city',
+  'state',
+  'country',
+  'country_iso',
+  'website_url',
   'linkedin_url',
   'twitter_url',
   'facebook_url',
@@ -26,8 +34,27 @@ const allowedProspectColumns = new Set([
   'reason_id',
   'notes',
   'follow_up_date',
-  'preferred_lang_id'
+  'preferred_lang_id',
+  'prospect_key',
+  'duplicate_count',
+  'source_bd_id'
 ]);
+
+const buildProspectKey = (phone, websiteUrl) => {
+  const normPhone = String(phone || '').replace(/\s+/g, '').trim();
+  let normWebsite = '';
+  if (websiteUrl) {
+    const raw = String(websiteUrl).trim();
+    try {
+      const withScheme = raw.startsWith('http') ? raw : `https://${raw}`;
+      const u = new URL(withScheme);
+      normWebsite = u.hostname.replace(/^www\./i, '').toLowerCase();
+    } catch {
+      normWebsite = raw.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+    }
+  }
+  return `${normPhone}_${normWebsite}`.toLowerCase();
+};
 
 const toNullableString = (value) => {
   if (value === undefined || value === null) {
@@ -46,16 +73,6 @@ const toNullablePositiveInteger = (value, fieldName) => {
   const normalized = Number(value);
   if (!Number.isInteger(normalized) || normalized <= 0) {
     throw CreateError(400, `Invalid ${fieldName}`);
-  }
-
-  return normalized;
-};
-
-const toRequiredPositiveInteger = (value, fieldName) => {
-  const normalized = toNullablePositiveInteger(value, fieldName);
-
-  if (normalized === null) {
-    throw CreateError(400, `${fieldName} is required`);
   }
 
   return normalized;
@@ -153,19 +170,6 @@ const getStageCodeByLabel = async (stageLabel, dbOrConnection) => {
   }
 
   return rows[0].stage_code;
-};
-
-const resolveStageCode = async ({ stageCode, stageLabel }, dbOrConnection) => {
-  if (stageCode !== undefined && stageCode !== null && stageCode !== '') {
-    return stageCode;
-  }
-
-  const stageCodeFromLabel = await getStageCodeByLabel(stageLabel, dbOrConnection);
-  if (stageCodeFromLabel !== null) {
-    return stageCodeFromLabel;
-  }
-
-  throw CreateError(400, 'stage_code or stage label is required');
 };
 
 const assertReasonExists = async (reasonId, dbOrConnection) => {
@@ -430,6 +434,84 @@ export const createSingleProspect = async (
 
   }
 };
+
+export const bulkInsertProspects = async (prospects, userId, langId = 'EN', db, sourcedByName) => {
+  const values = [];
+  const InvalidProspect = [];
+
+  const connection = await db.getConnection();
+  try {
+    const mdProspectsColumns = await getTableColumns('md_prospects', connection);
+
+    // Columns that we support inserting
+    const columnsToInsert = [
+      'company_name', 'contact_name', 'job_title', 'email', 'phone',
+      'linkedin_url', 'twitter_url', 'facebook_url', 'instagram_url',
+      'industry_id', 'industry_size_id', 'source_id', 'referral_name',
+      'stage_code', 'created_by', 'prospect_key'
+    ];
+
+    const activeColumns = columnsToInsert.filter(col => mdProspectsColumns.has(col));
+
+    for (const p of prospects) {
+      if (!p.email && !p.phone) {
+        InvalidProspect.push(p);
+        continue;
+      }
+
+      const prospectKey = buildProspectKey(p.phone, p.website_url);
+
+      // Check for duplicate by prospect_key
+      const [existing] = await connection.query(
+        `SELECT id FROM md_prospects WHERE prospect_key = ? LIMIT 1`,
+        [prospectKey]
+      );
+      if (existing.length > 0) continue;
+
+      // Concatenate contact name if not provided
+      if (!p.contact_name && (p.first_name || p.last_name)) {
+        p.contact_name = `${p.first_name || ''} ${p.last_name || ''}`.trim() || null;
+      }
+
+      // If country_iso is provided, fetch the dial_code automatically from md_countries (if Dial Code column exists in md_prospects)
+      let dial_code = p.dial_code || null;
+      if (p.country_iso && !dial_code && mdProspectsColumns.has('dial_code')) {
+        const [countryRows] = await connection.query(
+          `SELECT dial_code FROM md_countries WHERE iso_code = ? LIMIT 1`,
+          [p.country_iso]
+        );
+        if (countryRows.length > 0) {
+          dial_code = countryRows[0].dial_code;
+        }
+      }
+
+      p.prospect_key = prospectKey;
+      p.stage_code = p.stage_code || 1;
+      p.created_by = userId || null;
+      if (dial_code) p.dial_code = dial_code;
+
+      const rowValues = activeColumns.map(col => p[col] ?? null);
+      values.push(rowValues);
+    }
+
+    if (values.length === 0) {
+      return { inserted: 0, skipped: prospects.length };
+    }
+
+    const [result] = await connection.query(
+      `INSERT INTO md_prospects (${activeColumns.join(', ')}) VALUES ?`,
+      [values]
+    );
+
+    return {
+      inserted: result.affectedRows,
+      skipped: prospects.length - result.affectedRows,
+    };
+  } finally {
+    connection.release();
+  }
+};
+
 
 export const updateProspect = async ({ id, updates, userId }, db) => {
   const connection = await db.getConnection();
@@ -708,7 +790,7 @@ export const processProspect = async () => {
           source_id,
           referral_name,
           preferred_lang_id,
-          bd_id,
+          source_bd_id AS bd_id,
           duplicate_count,
           prospect_key
         FROM td_prospects
@@ -742,7 +824,7 @@ export const processProspect = async () => {
     const [existingRows] =
       await connection.query(
         `
-        SELECT prospect_key
+        SELECT id, prospect_key
         FROM md_prospects
         WHERE prospect_key IN (?)
         `,
@@ -751,7 +833,7 @@ export const processProspect = async () => {
 
     const existingMap = new Map();
     for (const row of existingRows) {
-      existingMap.set(row.prospect_key, true);
+      existingMap.set(row.prospect_key, row.id);
     }
 
     /* ---------------------------------------------
@@ -769,12 +851,14 @@ export const processProspect = async () => {
       ----------------------------------------- */
 
       if (alreadyExists) {
+        const prospectId = existingMap.get(row.prospect_key);
         duplicateValues.push([
+          '00000000-0000-0000-0000-000000000000', // import_uuid
           row.prospect_key,
-          'DUPLICATE',
-          row.bd_id,
-          row.source_id,
-          row.duplicate_count
+          'duplicate_existing',                   // stage_status
+          prospectId || null,                     // prospect_id
+          row.duplicate_count || 1,               // count
+          row.bd_id || null                       // created_by
         ]);
 
         continue;
@@ -811,10 +895,10 @@ export const processProspect = async () => {
       ----------------------------------------- */
 
       assignmentValues.push([
-        row.duplicate_key,
-        null,
+        row.prospect_key,
         row.bd_id,
-        row.source_id
+        null,
+        row.bd_id || null
       ]);
 
       /* -----------------------------------------
@@ -822,7 +906,7 @@ export const processProspect = async () => {
       ----------------------------------------- */
 
       stageValues.push([
-        row.duplicate_key,
+        row.prospect_key,
         1,
         null,
         row.bd_id
@@ -853,8 +937,8 @@ export const processProspect = async () => {
           source_id,
           referral_name,
           preferred_lang_id,
-          updated_by,
-          duplicate_key
+          created_by,
+          prospect_key
         )
         VALUES ?
         `,
@@ -871,10 +955,10 @@ export const processProspect = async () => {
       await connection.query(
         `
         INSERT INTO td_prospect_assignment (
-          duplicate_key,
-          assigned_to,
-          bd_id,
-          source_by
+          prospect_key,
+          new_bd_id,
+          old_bd_id,
+          assigned_by
         )
         VALUES ?
         `,
@@ -891,10 +975,10 @@ export const processProspect = async () => {
       await connection.query(
         `
         INSERT INTO td_prospect_stage_history (
-          duplicate_key,
+          prospect_key,
           stage_code,
           reason_id,
-          bd_id
+          assigned_by
         )
         VALUES ?
         `,
@@ -911,11 +995,12 @@ export const processProspect = async () => {
       await connection.query(
         `
         INSERT INTO td_duplicate (
-          duplicate_key,
+          import_uuid,
+          prospect_key,
           stage_status,
-          bd_id,
-          source_id,
-          count
+          prospect_id,
+          count,
+          created_by
         )
         VALUES ?
         `,
