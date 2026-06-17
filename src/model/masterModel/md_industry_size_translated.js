@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS md_industry_size_translated (
     FOREIGN KEY (industry_size_id) REFERENCES md_industry_size (industry_size_id)
 ) 
 `;
-
 export async function createTable() {
   try {
     await db.execute(createTableQuery);

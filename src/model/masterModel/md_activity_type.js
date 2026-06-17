@@ -1,11 +1,11 @@
 import db from "../../config/db.js";
 
 const createTableQuery = `
-CREATE TABLE IF NOT EXISTS md_activity_type (
-    activity_type_id INT PRIMARY KEY AUTO_INCREMENT,
-    activity_type_title VARCHAR(100) NOT NULL,
+CREATE TABLE IF NOT EXISTS md_activity_types (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    activity_name VARCHAR(100) NOT NULL,
     lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
-    UNIQUE KEY uk_activity_type_title_lang (activity_type_title, lang_id)
+    UNIQUE KEY uk_activity_type_title_lang (activity_name, lang_id)
 );
 `;
 

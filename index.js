@@ -14,7 +14,8 @@ dotenv.config({});
 const app = express();
 app.use(express.json());
 
-await createAllTable();             //  ----> This function will create all tables from models directly into each system 
+
+ // await createAllTable();             //  ----> This function will create all tables from models directly into each system 
 app.use('/messages', messagesRoutes);
 app.use('/prospects', prospectRoutes);
 app.use('/masters', masterRoutes);

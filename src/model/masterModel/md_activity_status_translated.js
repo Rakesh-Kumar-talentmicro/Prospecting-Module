@@ -6,8 +6,7 @@ CREATE TABLE IF NOT EXISTS md_activity_status_translated (
   lang_id VARCHAR(10) NOT NULL DEFAULT 'EN',
   translated_title VARCHAR(100) NOT NULL,
   PRIMARY KEY (activity_id, lang_id),
-  CONSTRAINT fk_activity_status
-    FOREIGN KEY (activity_id) REFERENCES md_activity_status (activity_id)
+  CONSTRAINT fk_activity_status FOREIGN KEY (activity_id) REFERENCES md_activity_status (id)
 );
 `;
 

@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS md_sources_translated (
   PRIMARY KEY (source_id, lang_id),
   CONSTRAINT fk_source
     FOREIGN KEY (source_id) REFERENCES md_sources (source_id)
-)
+);
 `;
 
 export async function createTable() {
